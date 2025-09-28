@@ -1,7 +1,4 @@
-use crate::tools::{
-    ListFilesRequest, ListFilesToolRequest, list_all_files, list_all_files_tool, read_file,
-    read_file_tool,
-};
+use crate::tools::{ListFilesRequest, ListFilesToolRequest, list_all_files, list_all_files_tool, read_file, read_file_tool, execute_command_tool, ExecuteCommandRequest};
 use anyhow;
 use openai_api_rs::v1::chat_completion::{ChatCompletionMessage, ToolCall};
 use openai_api_rs::v1::{
@@ -10,6 +7,7 @@ use openai_api_rs::v1::{
 };
 use serde::{Deserialize, Serialize};
 use std::env;
+use crate::shell::detect_shell_kind;
 
 fn get_openai_client() -> OpenAIClient {
     let api_key = env::var("OPENAI_API_KEY").unwrap().to_string();
@@ -22,13 +20,18 @@ fn get_openai_client() -> OpenAIClient {
 pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> {
     let mut client = get_openai_client();
     let model = "gpt-4.1".to_string();
+    let shell = detect_shell_kind();
     let mut req = ChatCompletionRequest::new(
         model,
         vec![ChatCompletionMessage {
             role: chat_completion::MessageRole::system,
-            content: chat_completion::Content::Text("You are a terminal assistant to the user. \
-            The user cannot reply to your messages; this is a one-way conversation. \
-            ".to_string()),
+            content: chat_completion::Content::Text(format!("\
+            You are a terminal assistant to the user. \
+            The user cannot reply to your messages; \
+            this is a one-way conversation. \n\
+            The current shell is {}. Make sure that commands generated \
+            apply to this shell.
+            ", shell).to_string()),
             name: None,
             tool_call_id: None,
             tool_calls: None,
@@ -39,7 +42,7 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
             tool_call_id: None,
             tool_calls: None
         }],
-    ).tools(vec![list_all_files_tool(), read_file_tool()]).tool_choice(chat_completion::ToolChoiceType::Auto);
+    ).tools(vec![list_all_files_tool(), read_file_tool(), execute_command_tool()]).tool_choice(chat_completion::ToolChoiceType::Auto);
 
     for _i in 0..10 {
         let response_result = client.chat_completion(req.clone()).await;
@@ -47,7 +50,6 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
 
         let (should_continue, result) = match response.choices[0].finish_reason {
             None => {
-                println!("No finish reason");
                 println!("{:?}", response.choices[0].message.content);
                 (
                     false,
@@ -101,7 +103,23 @@ fn execute_tool_call(tool_call: ToolCall) -> (String, String) {
     let arguments = tool_call.function.arguments.unwrap();
     let id = tool_call.id;
     let mut result: String = String::new();
-    if name == "list_all_files" {
+    if name == "execute_command" {
+        let args: ExecuteCommandRequest = serde_json::from_str(&arguments).unwrap();
+        println!("Command: {}", args.command);
+        print!("Do you want to allow this command? (y/n): ");
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).expect("Failed to read user input");
+        if input.trim().to_lowercase() == "y" || input.trim().to_lowercase() == "yes" {
+            // Execute the command only if user approves
+            result = crate::tools::execute_command(&args.command, &args.working_directory);
+            if result == "" {
+                result = "Executed".to_string()
+            }
+        } else {
+            result = "Command execution canceled by user.".to_string();
+        }
+    }
+    else if name == "list_all_files" {
         let args: ListFilesRequest = serde_json::from_str(&arguments).unwrap();
         let files = list_all_files(args.base_path.as_str());
         for file in files {
