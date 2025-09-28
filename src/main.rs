@@ -1,6 +1,7 @@
 use clap::Parser;
 
 mod llms;
+mod tools;
 
 #[derive(Parser)]
 struct Cli {
@@ -13,7 +14,7 @@ async fn main() {
     let cli = Cli::parse();
 
     let question = cli.question.join(" ");
-    let answer = llms::ask_question(&question).await;
+    let answer = llms::ask_question(&question).await.unwrap();
     println!("Answer: {}", answer);
 
     println!("You asked: {}", cli.question.join(" "));
