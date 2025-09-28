@@ -15,8 +15,5 @@ async fn main() {
 
     let question = cli.question.join(" ");
     let answer = llms::ask_question(&question).await.unwrap();
-    println!("Answer: {}", answer);
-
-    println!("You asked: {}", cli.question.join(" "));
-    
+    println!("{}", answer);
 }

@@ -1,13 +1,22 @@
-use std::env;
+use crate::tools::{
+    ListFilesRequest, ListFilesToolRequest, list_all_files, list_all_files_tool, read_file,
+    read_file_tool,
+};
 use anyhow;
-use serde::{Deserialize, Serialize};
-use openai_api_rs::v1::{api::OpenAIClient, chat_completion::{self, ChatCompletionRequest}};
 use openai_api_rs::v1::chat_completion::{ChatCompletionMessage, ToolCall};
-use crate::tools::{list_all_files_tool, list_all_files, ListFilesRequest, read_file_tool, ListFilesToolRequest, read_file};
+use openai_api_rs::v1::{
+    api::OpenAIClient,
+    chat_completion::{self, ChatCompletionRequest},
+};
+use serde::{Deserialize, Serialize};
+use std::env;
 
 fn get_openai_client() -> OpenAIClient {
     let api_key = env::var("OPENAI_API_KEY").unwrap().to_string();
-    OpenAIClient::builder().with_api_key(api_key).build().unwrap()
+    OpenAIClient::builder()
+        .with_api_key(api_key)
+        .build()
+        .unwrap()
 }
 
 pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> {
@@ -15,7 +24,15 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
     let model = "gpt-4.1".to_string();
     let mut req = ChatCompletionRequest::new(
         model,
-        vec![chat_completion::ChatCompletionMessage {
+        vec![ChatCompletionMessage {
+            role: chat_completion::MessageRole::system,
+            content: chat_completion::Content::Text("You are a terminal assistant to the user. \
+            The user cannot reply to your messages; this is a one-way conversation. \
+            ".to_string()),
+            name: None,
+            tool_call_id: None,
+            tool_calls: None,
+        }, ChatCompletionMessage {
             role: chat_completion::MessageRole::user,
             content: chat_completion::Content::Text(question.to_string()),
             name: None,
@@ -32,11 +49,15 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
             None => {
                 println!("No finish reason");
                 println!("{:?}", response.choices[0].message.content);
-                (false, Some(response.choices[0].message.content.clone().unwrap()))
+                (
+                    false,
+                    Some(response.choices[0].message.content.clone().unwrap()),
+                )
             }
-            Some(chat_completion::FinishReason::stop) => {
-                (false, Some(response.choices[0].message.content.clone().unwrap()))
-            }
+            Some(chat_completion::FinishReason::stop) => (
+                false,
+                Some(response.choices[0].message.content.clone().unwrap()),
+            ),
             Some(chat_completion::FinishReason::length) => (false, None),
             Some(chat_completion::FinishReason::tool_calls) => {
                 let tool_calls = response.choices[0].message.tool_calls.clone().unwrap();
@@ -49,15 +70,13 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
                 });
                 for tool_call in tool_calls {
                     let (id, result) = execute_tool_call(tool_call);
-                    req.messages.push(
-                        ChatCompletionMessage {
-                            tool_call_id: Some(id),
-                            role: chat_completion::MessageRole::tool,
-                            content: chat_completion::Content::Text(result),
-                            name: None,
-                            tool_calls: None,
-                        }
-                    );
+                    req.messages.push(ChatCompletionMessage {
+                        tool_call_id: Some(id),
+                        role: chat_completion::MessageRole::tool,
+                        content: chat_completion::Content::Text(result),
+                        name: None,
+                        tool_calls: None,
+                    });
                 }
 
                 (true, None)
@@ -69,9 +88,8 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
             return match result {
                 Some(r) => Ok(r),
                 None => Err(Box::from(anyhow::anyhow!("Response too long"))),
-            }
-        }
-        else {
+            };
+        } else {
             continue;
         }
     }
@@ -90,9 +108,8 @@ fn execute_tool_call(tool_call: ToolCall) -> (String, String) {
             result.push_str(&file);
             result.push('\n');
         }
-    }
-    else if name == "read_file" {
-        let args:ListFilesToolRequest = serde_json::from_str(&arguments).unwrap();
+    } else if name == "read_file" {
+        let args: ListFilesToolRequest = serde_json::from_str(&arguments).unwrap();
         result = read_file(args.file_path.as_str());
         result.push('\n');
     }
