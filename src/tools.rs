@@ -2,12 +2,12 @@ use openai_api_rs::v1::chat_completion::Tool;
 use openai_api_rs::v1::{chat_completion, types};
 use std::collections::HashMap;
 use std::fs;
-use std::process::Command;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]
 pub struct ListFilesRequest {
     pub base_path: String,
+    pub recursive: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -21,18 +21,79 @@ pub struct ExecuteCommandRequest {
     pub working_directory: String,
 }
 
-pub fn list_all_files(base_path: &str) -> Vec<String> {
-    println!("\nListing all files in {}", base_path);
-    let result: Vec<String> = fs::read_dir(base_path)
-        .unwrap()
-        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
-        .collect();
+pub fn list_all_files(base_path: &str, recursive: bool) -> Vec<String> {
+    if !recursive {
+        return fs::read_dir(base_path)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+    }
+
+    let mut result = Vec::new();
+    list_files_recursive(base_path, &mut result).unwrap_or_else(|err| {
+        println!("Error listing files recursively: {err}");
+    });
 
     result
 }
 
+fn list_files_recursive(path: &str, files: &mut Vec<String>) -> std::io::Result<()> {
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let path_buf = entry.path();
+
+        // Add the file or directory path relative to the starting point
+        let path_str = path_buf.to_string_lossy().to_string();
+        files.push(path_str);
+
+        // Recursively process subdirectories
+        if path_buf.is_dir() {
+            list_files_recursive(path_buf.to_str().unwrap(), files)?;
+        }
+    }
+
+    Ok(())
+}
+
+
+
+pub fn list_all_files_tool() -> Tool {
+    let mut tool_props = HashMap::new();
+    tool_props.insert(
+        "base_path".to_string(),
+        Box::new(types::JSONSchemaDefine {
+            schema_type: Some(types::JSONSchemaType::String),
+            description: Some("The path to get files from".to_string()),
+            ..Default::default()
+        }),
+    );
+
+    tool_props.insert(
+        "recursive".to_string(),
+        Box::new(types::JSONSchemaDefine {
+            schema_type: Some(types::JSONSchemaType::Boolean),
+            description: Some("A boolean to indicate if all files should be listed recursively".to_string()),
+            ..Default::default()
+        })
+    );
+
+    Tool {
+        r#type: chat_completion::ToolType::Function,
+        function: types::Function {
+            name: String::from("list_all_files"),
+            description: Some(String::from("List all files in a directory")),
+            parameters: types::FunctionParameters {
+                schema_type: types::JSONSchemaType::Object,
+                properties: Some(tool_props),
+                required: Some(vec!["base_path".to_string(), "recursive".to_string()]),
+            },
+        },
+    }
+}
+
+
+
 pub fn read_file(file_path: &str) -> String {
-    println!("Reading File: {}", file_path);
     fs::read_to_string(file_path).unwrap()
 }
 
@@ -67,10 +128,10 @@ pub fn execute_command(command: &str, working_directory: &str) -> String {
             if stderr.is_empty() {
                 stdout
             } else {
-                format!("stdout:\n{}\n---\nstderr:\n{}", stdout, stderr)
+                format!("stdout:\n{stdout}\n---\nstderr:\n{stderr}")
             }
         },
-        Err(e) => format!("Failed to execute command '{}': {}", command, e)
+        Err(e) => format!("Failed to execute command '{command}': {e}")
     }
 }
 
@@ -131,29 +192,3 @@ pub fn read_file_tool() -> Tool {
         }
     }
 }
-
-pub fn list_all_files_tool() -> Tool {
-    let mut tool_props = HashMap::new();
-    tool_props.insert(
-        "base_path".to_string(),
-        Box::new(types::JSONSchemaDefine {
-            schema_type: Some(types::JSONSchemaType::String),
-            description: Some("The path to get files from".to_string()),
-            ..Default::default()
-        }),
-    );
-
-    Tool {
-        r#type: chat_completion::ToolType::Function,
-        function: types::Function {
-            name: String::from("list_all_files"),
-            description: Some(String::from("List all files in a directory")),
-            parameters: types::FunctionParameters {
-                schema_type: types::JSONSchemaType::Object,
-                properties: Some(tool_props),
-                required: Some(vec!["base_path".to_string()]),
-            },
-        },
-    }
-}
-

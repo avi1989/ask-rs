@@ -1,6 +1,5 @@
 // Rust
 use std::{collections::HashMap, path::Path};
-use sysinfo;
 
 pub fn detect_shell_kind() -> String {
     // Heuristics from env

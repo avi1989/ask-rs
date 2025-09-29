@@ -16,5 +16,5 @@ async fn main() {
 
     let question = cli.question.join(" ");
     let answer = llms::ask_question(&question).await.unwrap();
-    println!("{}", answer);
+    markterm::render_text_to_stdout(&answer, None, markterm::ColorChoice::Auto).unwrap()
 }
