@@ -6,6 +6,7 @@ use openai_api_rs::v1::{
 };
 use std::env;
 use crate::shell::detect_shell_kind;
+use std::io::Write;
 
 fn get_openai_client() -> OpenAIClient {
     let api_key = env::var("OPENAI_API_KEY").unwrap().to_string();
@@ -104,7 +105,8 @@ fn execute_tool_call(tool_call: ToolCall) -> (String, String) {
     let mut result: String = String::new();
     if name == "execute_command" {
         let args: ExecuteCommandRequest = serde_json::from_str(&arguments).unwrap();
-        print!("{}\nCan I execute the above command(y/n)", args.command);
+        print!("{}\nCan I execute the above command?", args.command);
+        std::io::stdout().flush().expect("Failed to flush stdout");
         let mut input = String::new();
         std::io::stdin().read_line(&mut input).expect("Failed to read user input");
         if input.trim().to_lowercase() == "y" || input.trim().to_lowercase() == "yes" {
