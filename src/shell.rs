@@ -36,7 +36,7 @@ pub fn detect_shell_kind() -> String {
     match parent_process_name().as_deref() {
         Some("pwsh") | Some("powershell") | Some("powershell.exe") | Some("pwsh.exe") => "Powershell".to_string(),
         Some("bash") | Some("zsh") | Some("fish") | Some("sh") |
-        Some("bash.exe") | Some("zsh.exe") | Some("fish.exe") | Some("sh.exe") => "Powershell".to_string(),
+        Some("bash.exe") | Some("zsh.exe") | Some("fish.exe") | Some("sh.exe") => "POSIX".to_string(),
         _ => "POSIX".to_string(),
     }
 }

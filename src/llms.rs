@@ -9,29 +9,22 @@ use crate::shell::detect_shell_kind;
 use std::io::Write;
 
 fn get_openai_client() -> OpenAIClient {
-    let api_key = env::var("OPENAI_API_KEY").unwrap().to_string();
+    let api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY is not set");
     OpenAIClient::builder()
         .with_api_key(api_key)
         .build()
-        .unwrap()
+        .expect("Failed to build OpenAI client")
 }
 
 pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> {
     let mut client = get_openai_client();
-    let model = "gpt-4.1".to_string();
+    let model = env::var("OPENAI_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
     let shell = detect_shell_kind();
     let mut req = ChatCompletionRequest::new(
         model,
         vec![ChatCompletionMessage {
             role: chat_completion::MessageRole::system,
-            content: chat_completion::Content::Text(format!("\
-            You are a terminal assistant to the user. \
-            The user cannot reply to your messages; \
-            this is a one-way conversation. \n\
-            The current shell is {shell}. Make sure that commands generated \
-            apply to this shell. \n\
-            Format the results in markdown.
-            ").to_string()),
+            content: chat_completion::Content::Text(build_system_prompt(&shell)),
             name: None,
             tool_call_id: None,
             tool_calls: None,
@@ -44,13 +37,14 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
         }],
     ).tools(vec![list_all_files_tool(), read_file_tool(), execute_command_tool()]).tool_choice(chat_completion::ToolChoiceType::Auto);
 
-    for _i in 0..21 {
-        let response_result = client.chat_completion(req.clone()).await;
-        let response = response_result.unwrap();
+    for _ in 0..MAX_TURNS {
+        let response = match client.chat_completion(req.clone()).await {
+            Ok(r) => r,
+            Err(e) => return Err(Box::from(anyhow::anyhow!(e.to_string()))),
+        };
 
         let (should_continue, result) = match response.choices[0].finish_reason {
             None => {
-                println!("{:?}", response.choices[0].message.content);
                 (
                     false,
                     Some(response.choices[0].message.content.clone().unwrap()),
@@ -95,7 +89,7 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
             continue;
         }
     }
-    Err(Box::from(anyhow::anyhow!("No response after 10 attempts")))
+    Err(Box::from(anyhow::anyhow!(format!("No response after {} attempts", MAX_TURNS))))
 }
 
 fn execute_tool_call(tool_call: ToolCall) -> (String, String) {
@@ -105,7 +99,7 @@ fn execute_tool_call(tool_call: ToolCall) -> (String, String) {
     let mut result: String = String::new();
     if name == "execute_command" {
         let args: ExecuteCommandRequest = serde_json::from_str(&arguments).unwrap();
-        print!("{}\nCan I execute the above command?", args.command);
+        print!("{}\nCan I execute the above command? [y/N]: ", args.command);
         std::io::stdout().flush().expect("Failed to flush stdout");
         let mut input = String::new();
         std::io::stdin().read_line(&mut input).expect("Failed to read user input");
@@ -121,7 +115,6 @@ fn execute_tool_call(tool_call: ToolCall) -> (String, String) {
     }
     else if name == "list_all_files" {
         let args: ListFilesRequest = serde_json::from_str(&arguments).unwrap();
-        println!("Listing files in {} (recursive: {})", args.base_path, args.recursive);
         let files = list_all_files(args.base_path.as_str(), args.recursive);
         for file in files {
             result.push_str(&file);
@@ -129,10 +122,18 @@ fn execute_tool_call(tool_call: ToolCall) -> (String, String) {
         }
     } else if name == "read_file" {
         let args: ListFilesToolRequest = serde_json::from_str(&arguments).unwrap();
-        println!("Reading file {}", args.file_path);
         result = read_file(args.file_path.as_str());
         result.push('\n');
     }
 
     (id, result)
+}
+
+const DEFAULT_MODEL: &str = "gpt-4.1";
+const MAX_TURNS: usize = 21;
+
+fn build_system_prompt(shell: &str) -> String {
+    format!(
+        "You are a terminal assistant to the user. The user cannot reply to your messages; this is a one-way conversation.\nThe current shell is {shell}. Make sure that commands you generate apply to this shell.\nFormat the results in markdown."
+    )
 }

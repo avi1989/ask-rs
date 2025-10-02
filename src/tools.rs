@@ -23,10 +23,12 @@ pub struct ExecuteCommandRequest {
 
 pub fn list_all_files(base_path: &str, recursive: bool) -> Vec<String> {
     if !recursive {
-        return fs::read_dir(base_path)
-            .unwrap()
-            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
-            .collect();
+        return match fs::read_dir(base_path) {
+            Ok(entries) => entries
+                .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().to_string()))
+                .collect(),
+            Err(e) => vec![format!("ERROR: failed to read directory '{}': {}", base_path, e)],
+        };
     }
 
     let mut result = Vec::new();
@@ -94,7 +96,10 @@ pub fn list_all_files_tool() -> Tool {
 
 
 pub fn read_file(file_path: &str) -> String {
-    fs::read_to_string(file_path).unwrap()
+    match fs::read_to_string(file_path) {
+        Ok(contents) => contents,
+        Err(e) => format!("ERROR: failed to read file '{}': {}", file_path, e),
+    }
 }
 
 
