@@ -75,6 +75,74 @@ pub fn config_to_servers(config: &AskRcConfig) -> Vec<(String, McpServerConfig)>
         .collect()
 }
 
+/// Save configuration to ~/.askrc
+pub fn save_config(config: &AskRcConfig) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let config_path: PathBuf = shellexpand::tilde("~/.askrc").into_owned().parse()?;
+
+    let json = serde_json::to_string_pretty(config)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+
+    fs::write(&config_path, json)
+        .map_err(|e| format!("Failed to write config to {:?}: {}", config_path, e))?;
+
+    Ok(config_path)
+}
+
+/// Add a new MCP server to the configuration
+pub fn add_server(
+    name: &str,
+    command: String,
+    args: Vec<String>,
+    env: HashMap<String, String>,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    // Load existing config or create new one
+    let mut config = match load_config() {
+        Ok(cfg) => cfg,
+        Err(_) => AskRcConfig {
+            mcp_servers: HashMap::new(),
+        },
+    };
+
+    // Check if server already exists
+    if config.mcp_servers.contains_key(name) {
+        return Err(format!(
+            "Server '{}' already exists. Remove it first with: ask-rs remove {}",
+            name, name
+        )
+        .into());
+    }
+
+    // Add the new server
+    config.mcp_servers.insert(
+        name.to_string(),
+        McpServerDefinition {
+            command,
+            args,
+            env,
+        },
+    );
+
+    // Save the config
+    save_config(&config)
+}
+
+/// Remove an MCP server from the configuration
+pub fn remove_server(name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    // Load existing config
+    let mut config = load_config()?;
+
+    // Check if server exists
+    if !config.mcp_servers.contains_key(name) {
+        return Err(format!("Server '{}' not found", name).into());
+    }
+
+    // Remove the server
+    config.mcp_servers.remove(name);
+
+    // Save the config
+    save_config(&config)
+}
+
 /// Expand environment variables in strings
 /// Supports ${VAR} and ${VAR:-default} syntax
 fn expand_env_vars(input: &str) -> String {
