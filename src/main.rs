@@ -44,6 +44,21 @@ enum Commands {
         /// Name of the MCP server to remove
         name: String,
     },
+
+    /// Approve a tool to auto-execute without prompting
+    Approve {
+        /// Name of the tool to auto-approve (e.g., "git_status", "execute_command")
+        tool_name: String,
+    },
+
+    /// Unapprove a tool (require prompting again)
+    Unapprove {
+        /// Name of the tool to remove from auto-approve list
+        tool_name: String,
+    },
+
+    /// List all auto-approved tools
+    Approvals,
 }
 
 #[tokio::main]
@@ -59,6 +74,15 @@ async fn main() {
         }
         Some(Commands::Remove { name }) => {
             handle_remove(name);
+        }
+        Some(Commands::Approve { tool_name }) => {
+            handle_approve(tool_name);
+        }
+        Some(Commands::Unapprove { tool_name }) => {
+            handle_unapprove(tool_name);
+        }
+        Some(Commands::Approvals) => {
+            handle_list_approvals();
         }
         None => {
             // Default behavior: ask a question
@@ -134,6 +158,55 @@ fn handle_remove(name: String) {
         Err(e) => {
             eprintln!("Error removing server: {}", e);
             std::process::exit(1);
+        }
+    }
+}
+
+fn handle_approve(tool_name: String) {
+    match config::add_auto_approved_tool(&tool_name) {
+        Ok(path) => {
+            println!("✓ Tool '{}' will be auto-approved (saved to {:?})", tool_name, path);
+            println!("  This tool will execute without prompting in future sessions.");
+        }
+        Err(e) => {
+            eprintln!("Error approving tool: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn handle_unapprove(tool_name: String) {
+    match config::remove_auto_approved_tool(&tool_name) {
+        Ok(path) => {
+            println!("✓ Tool '{}' removed from auto-approve list (saved to {:?})", tool_name, path);
+            println!("  This tool will require confirmation before executing.");
+        }
+        Err(e) => {
+            eprintln!("Error unapproving tool: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn handle_list_approvals() {
+    match config::list_auto_approved_tools() {
+        Ok(tools) => {
+            if tools.is_empty() {
+                println!("No auto-approved tools.");
+                println!("Add one with: ask-rs approve <tool_name>");
+                return;
+            }
+
+            println!("Auto-approved tools:\n");
+            for tool in &tools {
+                println!("  ✓ {}", tool);
+            }
+            println!("\nThese tools will execute without prompting.");
+            println!("Remove with: ask-rs unapprove <tool_name>");
+        }
+        Err(e) => {
+            eprintln!("Error listing approvals: {}", e);
+            eprintln!("No configuration file found.");
         }
     }
 }

@@ -7,6 +7,7 @@ A powerful AI assistant CLI tool with dynamic MCP (Model Context Protocol) serve
 - 🤖 **AI-Powered Assistant** - Ask questions and get intelligent responses powered by OpenAI
 - 🔌 **Dynamic MCP Integration** - Connect to any MCP server using Claude Code's configuration format
 - 🛠️ **Built-in Tools** - File system operations, command execution, and more
+- 🔒 **Permission-Based Execution** - User confirmation required before executing MCP tools and commands
 - ⚙️ **Easy Configuration** - Manage MCP servers via CLI commands
 - 🌍 **Environment Variables** - Support for `${VAR}` and `${VAR:-default}` expansion
 - 📦 **Zero Hardcoding** - Add new MCP servers without touching code
@@ -113,9 +114,16 @@ MCP servers are configured in `~/.askrc` using Claude Code's `.mcp.json` format:
         "WEATHER_API_KEY": "${WEATHER_API_KEY:-default-key}"
       }
     }
-  }
+  },
+  "autoApprovedTools": [
+    "git_status",
+    "git_log",
+    "git_diff"
+  ]
 }
 ```
+
+The `autoApprovedTools` array contains tools that will execute without prompting.
 
 ### Environment Variable Expansion
 
@@ -183,6 +191,42 @@ ask-rs remove <name>
 ask-rs remove weather
 ```
 
+### Manage Auto-Approvals
+
+#### List Auto-Approved Tools
+
+```bash
+ask-rs approvals
+```
+
+Shows all tools that will execute without prompting.
+
+#### Approve a Tool
+
+```bash
+ask-rs approve <tool_name>
+```
+
+**Example:**
+```bash
+# Approve git_status to auto-execute
+ask-rs approve git_status
+
+# Approve execute_command to auto-execute all shell commands
+ask-rs approve execute_command
+```
+
+#### Unapprove a Tool
+
+```bash
+ask-rs unapprove <tool_name>
+```
+
+**Example:**
+```bash
+ask-rs unapprove git_status
+```
+
 ## Built-in Tools
 
 The following tools are available by default:
@@ -194,7 +238,76 @@ The following tools are available by default:
 
 ### Command Execution
 
-- **`execute_command`** - Execute shell commands (with user confirmation)
+- **`execute_command`** - Execute shell commands (requires user confirmation)
+
+## Security & Permissions
+
+For safety, the application asks for user confirmation before executing:
+
+1. **Shell Commands** - Any command execution via `execute_command` tool
+2. **MCP Tools** - All MCP tool calls from configured servers
+
+### Permission Prompt Example
+
+When an MCP tool is about to be executed, you'll see:
+
+```
+MCP Tool: git_status
+Arguments:
+{
+  "repo_path": "."
+}
+
+Execute MCP tool 'git_status'? [y/N/A]:
+```
+
+**Response Options:**
+- `y` or `yes` - Approve this single execution
+- `n` or `N` or Enter - Cancel execution
+- `a` or `all` - **Auto-approve all future calls to this tool for the session**
+
+### Auto-Approval
+
+When you respond with `A` (or `all`), all future invocations of that specific tool will be automatically approved without prompting. This is useful when:
+
+- You trust a particular MCP tool completely
+- The AI needs to call the same tool multiple times
+- You want to streamline repetitive operations
+
+**Example:**
+```
+Execute MCP tool 'git_status'? [y/N/A]: A
+All future 'git_status' calls will be auto-approved for this session.
+```
+
+Subsequent calls to `git_status` will show:
+```
+MCP Tool: git_status
+Arguments:
+{
+  "repo_path": "."
+}
+[Auto-approved]
+```
+
+**Note:** Auto-approvals are **persisted to `~/.askrc`** and will be remembered across sessions.
+
+### Managing Auto-Approvals via CLI
+
+You can also manage auto-approved tools using CLI commands:
+
+```bash
+# Approve a tool
+ask-rs approve git_status
+
+# List all approved tools
+ask-rs approvals
+
+# Remove approval
+ask-rs unapprove git_status
+```
+
+This ensures you have full control over what actions the AI performs on your system while maintaining convenience for trusted tools.
 
 ### MCP Tools
 

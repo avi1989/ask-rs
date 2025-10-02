@@ -19,5 +19,10 @@
         "WEATHER_API_KEY": "${WEATHER_API_KEY:-your-api-key-here}"
       }
     }
-  }
+  },
+  "autoApprovedTools": [
+    "git_status",
+    "git_log",
+    "git_diff"
+  ]
 }

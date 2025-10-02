@@ -9,6 +9,12 @@ use openai_api_rs::v1::{
 use std::env;
 use crate::shell::detect_shell_kind;
 use std::io::Write;
+use std::collections::HashSet;
+use std::sync::Mutex;
+use once_cell::sync::Lazy;
+
+/// Track tools that have been auto-approved with "A" (accept all) option
+static AUTO_APPROVED_TOOLS: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 
 fn get_openai_client() -> OpenAIClient {
     let api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY is not set");
@@ -26,6 +32,14 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
     // Load MCP configuration and build registry
     let registry = match config::load_config() {
         Ok(cfg) => {
+            // Load auto-approved tools from config
+            {
+                let mut auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap();
+                for tool in &cfg.auto_approved_tools {
+                    auto_approved.insert(tool.clone());
+                }
+            }
+
             let servers = config::config_to_servers(&cfg);
             McpRegistry::from_servers(servers)
         }
@@ -119,12 +133,37 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry) -> (String, St
 
     if name == "execute_command" {
         let args: ExecuteCommandRequest = serde_json::from_str(&arguments).unwrap();
-        print!("{}\nCan I execute the above command? [y/N]: ", args.command);
-        std::io::stdout().flush().expect("Failed to flush stdout");
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input).expect("Failed to read user input");
-        if input.trim().to_lowercase() == "y" || input.trim().to_lowercase() == "yes" {
-            // Execute the command only if user approves
+
+        // Check if this tool is auto-approved
+        let is_auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap().contains(&name);
+
+        let should_execute = if is_auto_approved {
+            println!("{}\n[Auto-approved]", args.command);
+            true
+        } else {
+            print!("{}\nCan I execute the above command? [y/N/A]: ", args.command);
+            std::io::stdout().flush().expect("Failed to flush stdout");
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).expect("Failed to read user input");
+            let trimmed = input.trim().to_lowercase();
+
+            if trimmed == "a" || trimmed == "all" {
+                AUTO_APPROVED_TOOLS.lock().unwrap().insert(name.clone());
+                // Persist to config file
+                if let Err(e) = config::add_auto_approved_tool(&name) {
+                    eprintln!("Warning: Failed to save auto-approval to config: {}", e);
+                    println!("All future '{}' commands will be auto-approved for this session only.", name);
+                } else {
+                    println!("All future '{}' commands will be auto-approved (saved to config).", name);
+                }
+                true
+            } else {
+                trimmed == "y" || trimmed == "yes"
+            }
+        };
+
+        if should_execute {
+            // Execute the command
             result = crate::tools::execute_command(&args.command, &args.working_directory);
             if result.is_empty() {
                 result = "Executed".to_string()
@@ -146,14 +185,50 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry) -> (String, St
         result.push('\n');
     }
     else if let Some(server_config) = registry.find_server_for_tool(&name) {
-        // Handle MCP tool calls dynamically based on the registry
-        match execute_mcp_tool_call(server_config, &name, &arguments) {
-            Ok(response) => {
-                result = response;
-            },
-            Err(err) => {
-                result = format!("Error executing MCP tool {}: {}", name, err);
+        // Check if this tool is auto-approved
+        let is_auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap().contains(&name);
+
+        let should_execute = if is_auto_approved {
+            let formatted_call = format_mcp_tool_call(&name, &arguments);
+            println!("\n{}\n[Auto-approved]", formatted_call);
+            true
+        } else {
+            // Ask for permission before executing MCP tool
+            let formatted_call = format_mcp_tool_call(&name, &arguments);
+            print!("\n{}\n\nExecute MCP tool '{}'? [y/N/A]: ", formatted_call, name);
+            std::io::stdout().flush().expect("Failed to flush stdout");
+
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).expect("Failed to read user input");
+            let trimmed = input.trim().to_lowercase();
+
+            if trimmed == "a" || trimmed == "all" {
+                AUTO_APPROVED_TOOLS.lock().unwrap().insert(name.clone());
+                // Persist to config file
+                if let Err(e) = config::add_auto_approved_tool(&name) {
+                    eprintln!("Warning: Failed to save auto-approval to config: {}", e);
+                    println!("All future '{}' calls will be auto-approved for this session only.", name);
+                } else {
+                    println!("All future '{}' calls will be auto-approved (saved to config).", name);
+                }
+                true
+            } else {
+                trimmed == "y" || trimmed == "yes"
             }
+        };
+
+        if should_execute {
+            // Handle MCP tool calls dynamically based on the registry
+            match execute_mcp_tool_call(server_config, &name, &arguments) {
+                Ok(response) => {
+                    result = response;
+                },
+                Err(err) => {
+                    result = format!("Error executing MCP tool {}: {}", name, err);
+                }
+            }
+        } else {
+            result = format!("MCP tool execution canceled by user.");
         }
     }
     else {
@@ -165,6 +240,19 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry) -> (String, St
 
 const DEFAULT_MODEL: &str = "gpt-4.1";
 const MAX_TURNS: usize = 21;
+
+fn format_mcp_tool_call(tool_name: &str, arguments: &str) -> String {
+    // Parse arguments as JSON for pretty printing
+    match serde_json::from_str::<serde_json::Value>(arguments) {
+        Ok(json) => {
+            let pretty = serde_json::to_string_pretty(&json).unwrap_or_else(|_| arguments.to_string());
+            format!("MCP Tool: {}\nArguments:\n{}", tool_name, pretty)
+        }
+        Err(_) => {
+            format!("MCP Tool: {}\nArguments: {}", tool_name, arguments)
+        }
+    }
+}
 
 fn build_system_prompt(shell: &str) -> String {
     format!(

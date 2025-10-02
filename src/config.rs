@@ -13,6 +13,9 @@ use std::path::PathBuf;
 pub struct AskRcConfig {
     #[serde(rename = "mcpServers")]
     pub mcp_servers: HashMap<String, McpServerDefinition>,
+
+    #[serde(rename = "autoApprovedTools", default)]
+    pub auto_approved_tools: Vec<String>,
 }
 
 /// Individual MCP server configuration
@@ -100,6 +103,7 @@ pub fn add_server(
         Ok(cfg) => cfg,
         Err(_) => AskRcConfig {
             mcp_servers: HashMap::new(),
+            auto_approved_tools: Vec::new(),
         },
     };
 
@@ -141,6 +145,39 @@ pub fn remove_server(name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> 
 
     // Save the config
     save_config(&config)
+}
+
+/// Add a tool to auto-approved list
+pub fn add_auto_approved_tool(tool_name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let mut config = match load_config() {
+        Ok(cfg) => cfg,
+        Err(_) => AskRcConfig {
+            mcp_servers: HashMap::new(),
+            auto_approved_tools: Vec::new(),
+        },
+    };
+
+    // Don't add duplicates
+    if !config.auto_approved_tools.contains(&tool_name.to_string()) {
+        config.auto_approved_tools.push(tool_name.to_string());
+    }
+
+    save_config(&config)
+}
+
+/// Remove a tool from auto-approved list
+pub fn remove_auto_approved_tool(tool_name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let mut config = load_config()?;
+
+    config.auto_approved_tools.retain(|t| t != tool_name);
+
+    save_config(&config)
+}
+
+/// List all auto-approved tools
+pub fn list_auto_approved_tools() -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let config = load_config()?;
+    Ok(config.auto_approved_tools.clone())
 }
 
 /// Expand environment variables in strings
