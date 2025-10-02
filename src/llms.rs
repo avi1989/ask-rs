@@ -130,8 +130,8 @@ fn execute_tool_call(tool_call: ToolCall) -> (String, String) {
         result.push('\n');
     }
     else if name.starts_with("git_") {
-        // Handle git tool calls generically
-        match crate::tools::git_tool::execute_git_tool_call(&name, &arguments) {
+        // Handle git MCP tool calls
+        match crate::tools::mcp::execute_git_tool_call(&name, &arguments) {
             Ok(response) => {
                 result = response;
             },
@@ -140,6 +140,15 @@ fn execute_tool_call(tool_call: ToolCall) -> (String, String) {
             }
         }
     }
+    // Add more MCP server handlers here as needed
+    // Example:
+    // else if name.starts_with("filesystem_") {
+    //     let config = mcp::McpServerConfig::new("uvx", vec!["mcp-server-filesystem".to_string()], "filesystem");
+    //     match mcp::execute_mcp_tool_call(&config, &name, &arguments) {
+    //         Ok(response) => result = response,
+    //         Err(err) => result = format!("Error: {}", err),
+    //     }
+    // }
 
     (id, result)
 }

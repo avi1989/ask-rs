@@ -1,4 +1,4 @@
-pub(crate) mod git_tool;
+pub(crate) mod mcp;
 
 use openai_api_rs::v1::chat_completion::Tool;
 use openai_api_rs::v1::{chat_completion, types};
@@ -201,5 +201,17 @@ pub fn read_file_tool() -> Tool {
 }
 
 pub fn get_git_tools() -> Vec<Tool> {
-    git_tool::git_mcp_tools()
+    mcp::git_mcp_tools()
 }
+
+// Example: To add more MCP servers, use the generic functions:
+// use mcp::{McpServerConfig, get_mcp_tools};
+//
+// pub fn get_filesystem_tools() -> Vec<Tool> {
+//     let config = McpServerConfig::new(
+//         "uvx",
+//         vec!["mcp-server-filesystem".to_string()],
+//         "filesystem"
+//     );
+//     mcp::get_mcp_tools(&config)
+// }
