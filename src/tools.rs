@@ -1,3 +1,5 @@
+pub(crate) mod git_tool;
+
 use openai_api_rs::v1::chat_completion::Tool;
 use openai_api_rs::v1::{chat_completion, types};
 use std::collections::HashMap;
@@ -196,4 +198,8 @@ pub fn read_file_tool() -> Tool {
             },
         }
     }
+}
+
+pub fn get_git_tools() -> Vec<Tool> {
+    git_tool::git_mcp_tools()
 }

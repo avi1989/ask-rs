@@ -1,4 +1,4 @@
-use crate::tools::{ListFilesRequest, ListFilesToolRequest, list_all_files, list_all_files_tool, read_file, read_file_tool, execute_command_tool, ExecuteCommandRequest};
+use crate::tools::{ListFilesRequest, ListFilesToolRequest, list_all_files, list_all_files_tool, read_file, read_file_tool, execute_command_tool, ExecuteCommandRequest, get_git_tools};
 use openai_api_rs::v1::chat_completion::{ChatCompletionMessage, ToolCall};
 use openai_api_rs::v1::{
     api::OpenAIClient,
@@ -20,6 +20,10 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
     let mut client = get_openai_client();
     let model = env::var("OPENAI_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
     let shell = detect_shell_kind();
+
+    let mut tools = vec![list_all_files_tool(), read_file_tool(), execute_command_tool()];
+    tools.extend(get_git_tools());
+
     let mut req = ChatCompletionRequest::new(
         model,
         vec![ChatCompletionMessage {
@@ -35,7 +39,7 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
             tool_call_id: None,
             tool_calls: None
         }],
-    ).tools(vec![list_all_files_tool(), read_file_tool(), execute_command_tool()]).tool_choice(chat_completion::ToolChoiceType::Auto);
+    ).tools(tools).tool_choice(chat_completion::ToolChoiceType::Auto);
 
     for _ in 0..MAX_TURNS {
         let response = match client.chat_completion(req.clone()).await {
@@ -124,6 +128,17 @@ fn execute_tool_call(tool_call: ToolCall) -> (String, String) {
         let args: ListFilesToolRequest = serde_json::from_str(&arguments).unwrap();
         result = read_file(args.file_path.as_str());
         result.push('\n');
+    }
+    else if name.starts_with("git_") {
+        // Handle git tool calls generically
+        match crate::tools::git_tool::execute_git_tool_call(&name, &arguments) {
+            Ok(response) => {
+                result = response;
+            },
+            Err(err) => {
+                result = format!("Error executing git tool {}: {}", name, err);
+            }
+        }
     }
 
     (id, result)
