@@ -129,7 +129,7 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry) -> (String, St
     let name = tool_call.function.name.clone().unwrap();
     let arguments = tool_call.function.arguments.unwrap();
     let id = tool_call.id;
-    let mut result: String = String::new();
+    let result: String;
 
     if name == "execute_command" {
         let args: ExecuteCommandRequest = serde_json::from_str(&arguments).unwrap();
@@ -164,10 +164,12 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry) -> (String, St
 
         if should_execute {
             // Execute the command
-            result = crate::tools::execute_command(&args.command, &args.working_directory);
-            if result.is_empty() {
-                result = "Executed".to_string()
-            }
+            let cmd_result = crate::tools::execute_command(&args.command, &args.working_directory);
+            result = if cmd_result.is_empty() {
+                "Executed".to_string()
+            } else {
+                cmd_result
+            };
         } else {
             result = "Command execution canceled by user.".to_string();
         }

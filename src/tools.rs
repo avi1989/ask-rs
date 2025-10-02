@@ -3,7 +3,6 @@ pub(crate) mod mcp;
 use openai_api_rs::v1::chat_completion::Tool;
 use openai_api_rs::v1::{chat_completion, types};
 use std::collections::HashMap;
-use std::fs;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize)]

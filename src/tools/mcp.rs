@@ -1,28 +1,3 @@
-//! Generic MCP (Model Context Protocol) tool integration
-//!
-//! This module provides a generic way to integrate any MCP server with OpenAI-compatible tools.
-//!
-//! # Adding a new MCP server
-//!
-//! 1. Create a configuration:
-//! ```
-//! let config = McpServerConfig::new(
-//!     "uvx",                              // Command to run
-//!     vec!["mcp-server-name".to_string()], // Arguments
-//!     "prefix"                             // Tool name prefix
-//! );
-//! ```
-//!
-//! 2. Get tools:
-//! ```
-//! let tools = get_mcp_tools(&config);
-//! ```
-//!
-//! 3. Execute tool calls:
-//! ```
-//! let result = execute_mcp_tool_call(&config, "prefix_tool_name", "{\"arg\": \"value\"}");
-//! ```
-
 use openai_api_rs::v1::chat_completion::Tool;
 use openai_api_rs::v1::{chat_completion, types};
 use rmcp::model::CallToolRequestParam;
@@ -50,14 +25,6 @@ impl McpRegistry {
         Self {
             servers: servers.into_iter().collect(),
         }
-    }
-
-    pub fn add_server(&mut self, name: String, config: McpServerConfig) {
-        self.servers.insert(name, config);
-    }
-
-    pub fn get_server(&self, name: &str) -> Option<&McpServerConfig> {
-        self.servers.get(name)
     }
 
     pub fn find_server_for_tool(&self, tool_name: &str) -> Option<&McpServerConfig> {
@@ -89,17 +56,6 @@ pub struct McpServerConfig {
     pub args: Vec<String>,
     pub env: HashMap<String, String>,
     pub tool_prefix: String,
-}
-
-impl McpServerConfig {
-    pub fn new(command: impl Into<String>, args: Vec<String>, tool_prefix: impl Into<String>) -> Self {
-        Self {
-            command: command.into(),
-            args,
-            env: HashMap::new(),
-            tool_prefix: tool_prefix.into(),
-        }
-    }
 }
 
 async fn create_mcp_service(config: &McpServerConfig) -> Result<McpService, Box<dyn std::error::Error>> {
@@ -276,20 +232,6 @@ pub fn load_all_mcp_tools(registry: &McpRegistry) -> Vec<Tool> {
     }
 
     all_tools
-}
-
-// Git-specific convenience functions (for backward compatibility)
-pub fn git_mcp_tools() -> Vec<Tool> {
-    let config = McpServerConfig::new("uvx", vec!["mcp-server-git".to_string()], "git");
-    get_mcp_tools(&config)
-}
-
-pub fn execute_git_tool_call(
-    name: &str,
-    arguments: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let config = McpServerConfig::new("uvx", vec!["mcp-server-git".to_string()], "git");
-    execute_mcp_tool_call(&config, name, arguments)
 }
 
 fn format_tool_result(result: &rmcp::model::CallToolResult) -> String {
