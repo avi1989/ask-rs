@@ -19,15 +19,16 @@ pub fn detect_shell_kind() -> String {
     }
 
     if cfg!(windows)
-        && let Ok(comspec) = std::env::var("ComSpec") {
-            let name = Path::new(&comspec)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            if name.eq_ignore_ascii_case("cmd.exe") {
-                return "Powershell".to_string();
-            }
+        && let Ok(comspec) = std::env::var("ComSpec")
+    {
+        let name = Path::new(&comspec)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        if name.eq_ignore_ascii_case("cmd.exe") {
+            return "Powershell".to_string();
         }
+    }
 
     match parent_process_name().as_deref() {
         Some("pwsh") | Some("powershell") | Some("powershell.exe") | Some("pwsh.exe") => {
@@ -50,16 +51,10 @@ fn parent_process_name() -> Option<String> {
     }
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
-        use libc::{getppid, proc_name};
-        use std::ffi::CStr;
-        unsafe {
-            let mut buf = [0u8; 1024];
-            let ppid = getppid();
-            // macOS doesn't have a stable /proc; use libproc:
-            // proc_name gets current, so use parent via sysctl/kinfo_proc is more accurate.
-            // For brevity, return Unknown here.
-        }
-        None
+        // macOS doesn't have a stable /proc; use libproc:
+        // proc_name gets current, so use parent via sysctl/kinfo_proc is more accurate.
+        // For brevity, return None here.
+        return None;
     }
     #[cfg(windows)]
     {
