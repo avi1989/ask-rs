@@ -1,17 +1,17 @@
 use crate::config;
-use crate::tools::mcp::{McpRegistry, load_all_mcp_tools, execute_mcp_tool_call};
-use crate::tools::{ListFilesRequest, ListFilesToolRequest, list_all_files, list_all_files_tool, read_file, read_file_tool, execute_command_tool, ExecuteCommandRequest};
+use crate::shell::detect_shell_kind;
+use crate::tools::mcp::{execute_mcp_tool_call, load_all_mcp_tools, McpRegistry};
+use crate::tools::{execute_command_tool, ExecuteCommandRequest};
+use once_cell::sync::Lazy;
 use openai_api_rs::v1::chat_completion::{ChatCompletionMessage, ToolCall};
 use openai_api_rs::v1::{
     api::OpenAIClient,
     chat_completion::{self, ChatCompletionRequest},
 };
-use std::env;
-use crate::shell::detect_shell_kind;
-use std::io::Write;
 use std::collections::HashSet;
+use std::env;
+use std::io::Write;
 use std::sync::Mutex;
-use once_cell::sync::Lazy;
 
 /// Track tools that have been auto-approved with "A" (accept all) option
 static AUTO_APPROVED_TOOLS: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
@@ -50,7 +50,7 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
         }
     };
 
-    let mut tools = vec![list_all_files_tool(), read_file_tool(), execute_command_tool()];
+    let mut tools = vec![execute_command_tool()];
     tools.extend(load_all_mcp_tools(&registry));
 
     let mut req = ChatCompletionRequest::new(
@@ -171,18 +171,6 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry) -> (String, St
         } else {
             result = "Command execution canceled by user.".to_string();
         }
-    }
-    else if name == "list_all_files" {
-        let args: ListFilesRequest = serde_json::from_str(&arguments).unwrap();
-        let files = list_all_files(args.base_path.as_str(), args.recursive);
-        for file in files {
-            result.push_str(&file);
-            result.push('\n');
-        }
-    } else if name == "read_file" {
-        let args: ListFilesToolRequest = serde_json::from_str(&arguments).unwrap();
-        result = read_file(args.file_path.as_str());
-        result.push('\n');
     }
     else if let Some(server_config) = registry.find_server_for_tool(&name) {
         // Check if this tool is auto-approved
