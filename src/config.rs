@@ -105,14 +105,9 @@ pub fn add_server(
         .into());
     }
 
-    config.mcp_servers.insert(
-        name.to_string(),
-        McpServerDefinition {
-            command,
-            args,
-            env,
-        },
-    );
+    config
+        .mcp_servers
+        .insert(name.to_string(), McpServerDefinition { command, args, env });
 
     save_config(&config)
 }
@@ -197,7 +192,10 @@ mod tests {
         std::env::set_var("TEST_VAR", "test_value");
 
         assert_eq!(expand_env_vars("${TEST_VAR}"), "test_value");
-        assert_eq!(expand_env_vars("prefix_${TEST_VAR}_suffix"), "prefix_test_value_suffix");
+        assert_eq!(
+            expand_env_vars("prefix_${TEST_VAR}_suffix"),
+            "prefix_test_value_suffix"
+        );
         assert_eq!(expand_env_vars("${NONEXISTENT:-default}"), "default");
         assert_eq!(expand_env_vars("${TEST_VAR:-default}"), "test_value");
     }

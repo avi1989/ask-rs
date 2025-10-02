@@ -1,7 +1,7 @@
 use crate::config;
 use crate::shell::detect_shell_kind;
-use crate::tools::mcp::{execute_mcp_tool_call, load_all_mcp_tools, McpRegistry};
-use crate::tools::{execute_command_tool, ExecuteCommandRequest};
+use crate::tools::mcp::{McpRegistry, execute_mcp_tool_call, load_all_mcp_tools};
+use crate::tools::{ExecuteCommandRequest, execute_command_tool};
 use once_cell::sync::Lazy;
 use openai_api_rs::v1::chat_completion::{ChatCompletionMessage, ToolCall};
 use openai_api_rs::v1::{
@@ -60,20 +60,25 @@ pub async fn ask_question(question: &str, verbose: bool) -> Result<String, Box<a
 
     let mut req = ChatCompletionRequest::new(
         model,
-        vec![ChatCompletionMessage {
-            role: chat_completion::MessageRole::system,
-            content: chat_completion::Content::Text(build_system_prompt(&shell)),
-            name: None,
-            tool_call_id: None,
-            tool_calls: None,
-        }, ChatCompletionMessage {
-            role: chat_completion::MessageRole::user,
-            content: chat_completion::Content::Text(question.to_string()),
-            name: None,
-            tool_call_id: None,
-            tool_calls: None
-        }],
-    ).tools(tools).tool_choice(chat_completion::ToolChoiceType::Auto);
+        vec![
+            ChatCompletionMessage {
+                role: chat_completion::MessageRole::system,
+                content: chat_completion::Content::Text(build_system_prompt(&shell)),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+            },
+            ChatCompletionMessage {
+                role: chat_completion::MessageRole::user,
+                content: chat_completion::Content::Text(question.to_string()),
+                name: None,
+                tool_call_id: None,
+                tool_calls: None,
+            },
+        ],
+    )
+    .tools(tools)
+    .tool_choice(chat_completion::ToolChoiceType::Auto);
 
     for _ in 0..MAX_TURNS {
         let response = match client.chat_completion(req.clone()).await {
@@ -82,12 +87,10 @@ pub async fn ask_question(question: &str, verbose: bool) -> Result<String, Box<a
         };
 
         let (should_continue, result) = match response.choices[0].finish_reason {
-            None => {
-                (
-                    false,
-                    Some(response.choices[0].message.content.clone().unwrap()),
-                )
-            }
+            None => (
+                false,
+                Some(response.choices[0].message.content.clone().unwrap()),
+            ),
             Some(chat_completion::FinishReason::stop) => (
                 false,
                 Some(response.choices[0].message.content.clone().unwrap()),
@@ -127,10 +130,17 @@ pub async fn ask_question(question: &str, verbose: bool) -> Result<String, Box<a
             continue;
         }
     }
-    Err(Box::from(anyhow::anyhow!(format!("No response after {} attempts", MAX_TURNS))))
+    Err(Box::from(anyhow::anyhow!(format!(
+        "No response after {} attempts",
+        MAX_TURNS
+    ))))
 }
 
-fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool) -> (String, String) {
+fn execute_tool_call(
+    tool_call: ToolCall,
+    registry: &McpRegistry,
+    verbose: bool,
+) -> (String, String) {
     let name = tool_call.function.name.clone().unwrap();
     let arguments = tool_call.function.arguments.unwrap();
     let id = tool_call.id;
@@ -147,10 +157,15 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool)
             }
             true
         } else {
-            print!("{}\nCan I execute the above command? [y/N/A]: ", args.command);
+            print!(
+                "{}\nCan I execute the above command? [y/N/A]: ",
+                args.command
+            );
             std::io::stdout().flush().expect("Failed to flush stdout");
             let mut input = String::new();
-            std::io::stdin().read_line(&mut input).expect("Failed to read user input");
+            std::io::stdin()
+                .read_line(&mut input)
+                .expect("Failed to read user input");
             let trimmed = input.trim().to_lowercase();
 
             if trimmed == "a" || trimmed == "all" {
@@ -158,10 +173,16 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool)
                 if let Err(e) = config::add_auto_approved_tool(&name) {
                     if verbose {
                         eprintln!("Warning: Failed to save auto-approval to config: {}", e);
-                        println!("All future '{}' commands will be auto-approved for this session only.", name);
+                        println!(
+                            "All future '{}' commands will be auto-approved for this session only.",
+                            name
+                        );
                     }
                 } else if verbose {
-                    println!("All future '{}' commands will be auto-approved (saved to config).", name);
+                    println!(
+                        "All future '{}' commands will be auto-approved (saved to config).",
+                        name
+                    );
                 }
                 true
             } else {
@@ -179,8 +200,7 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool)
         } else {
             result = "Command execution canceled by user.".to_string();
         }
-    }
-    else if let Some((server_name, server_config)) = registry.find_server_for_tool(&name) {
+    } else if let Some((server_name, server_config)) = registry.find_server_for_tool(&name) {
         let is_auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap().contains(&name);
 
         let should_execute = if is_auto_approved {
@@ -191,11 +211,16 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool)
             true
         } else {
             let formatted_call = format_mcp_tool_call(&name, &arguments);
-            print!("\n{}\n\nExecute MCP tool '{}'? [y/N/A]: ", formatted_call, name);
+            print!(
+                "\n{}\n\nExecute MCP tool '{}'? [y/N/A]: ",
+                formatted_call, name
+            );
             std::io::stdout().flush().expect("Failed to flush stdout");
 
             let mut input = String::new();
-            std::io::stdin().read_line(&mut input).expect("Failed to read user input");
+            std::io::stdin()
+                .read_line(&mut input)
+                .expect("Failed to read user input");
             let trimmed = input.trim().to_lowercase();
 
             if trimmed == "a" || trimmed == "all" {
@@ -203,10 +228,16 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool)
                 if let Err(e) = config::add_auto_approved_tool(&name) {
                     if verbose {
                         eprintln!("Warning: Failed to save auto-approval to config: {}", e);
-                        println!("All future '{}' calls will be auto-approved for this session only.", name);
+                        println!(
+                            "All future '{}' calls will be auto-approved for this session only.",
+                            name
+                        );
                     }
                 } else if verbose {
-                    println!("All future '{}' calls will be auto-approved (saved to config).", name);
+                    println!(
+                        "All future '{}' calls will be auto-approved (saved to config).",
+                        name
+                    );
                 }
                 true
             } else {
@@ -219,7 +250,7 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool)
                 match execute_mcp_tool_call(service, server_config, &name, &arguments) {
                     Ok(response) => {
                         result = response;
-                    },
+                    }
                     Err(err) => {
                         result = format!("Error executing MCP tool {}: {}", name, err);
                     }
@@ -228,10 +259,9 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool)
                 result = format!("Error: MCP service '{}' not initialized", server_name);
             }
         } else {
-            result = format!("MCP tool execution canceled by user.");
+            result = "MCP tool execution canceled by user.".to_string();
         }
-    }
-    else {
+    } else {
         result = format!("Unknown tool: {}", name);
     }
 
@@ -244,7 +274,8 @@ const MAX_TURNS: usize = 21;
 fn format_mcp_tool_call(tool_name: &str, arguments: &str) -> String {
     match serde_json::from_str::<serde_json::Value>(arguments) {
         Ok(json) => {
-            let pretty = serde_json::to_string_pretty(&json).unwrap_or_else(|_| arguments.to_string());
+            let pretty =
+                serde_json::to_string_pretty(&json).unwrap_or_else(|_| arguments.to_string());
             format!("MCP Tool: {}\nArguments:\n{}", tool_name, pretty)
         }
         Err(_) => {

@@ -2,8 +2,8 @@ use clap::{Parser, Subcommand};
 
 mod config;
 mod llms;
-mod tools;
 mod shell;
+mod tools;
 
 #[derive(Parser)]
 #[command(name = "ask-rs")]
@@ -76,7 +76,12 @@ async fn main() {
         Some(Commands::List) => {
             handle_list();
         }
-        Some(Commands::Add { name, command, args, env }) => {
+        Some(Commands::Add {
+            name,
+            command,
+            args,
+            env,
+        }) => {
             handle_add(name, command, args, env);
         }
         Some(Commands::Remove { name }) => {
@@ -96,7 +101,9 @@ async fn main() {
         }
         None => {
             if cli.question.is_empty() {
-                eprintln!("Error: Please provide a question or use a subcommand (list, add, remove)");
+                eprintln!(
+                    "Error: Please provide a question or use a subcommand (list, add, remove)"
+                );
                 std::process::exit(1);
             }
             let question = cli.question.join(" ");
@@ -174,7 +181,10 @@ fn handle_remove(name: String) {
 fn handle_approve(tool_name: String) {
     match config::add_auto_approved_tool(&tool_name) {
         Ok(path) => {
-            println!("✓ Tool '{}' will be auto-approved (saved to {:?})", tool_name, path);
+            println!(
+                "✓ Tool '{}' will be auto-approved (saved to {:?})",
+                tool_name, path
+            );
             println!("  This tool will execute without prompting in future sessions.");
         }
         Err(e) => {
@@ -187,7 +197,10 @@ fn handle_approve(tool_name: String) {
 fn handle_unapprove(tool_name: String) {
     match config::remove_auto_approved_tool(&tool_name) {
         Ok(path) => {
-            println!("✓ Tool '{}' removed from auto-approve list (saved to {:?})", tool_name, path);
+            println!(
+                "✓ Tool '{}' removed from auto-approve list (saved to {:?})",
+                tool_name, path
+            );
             println!("  This tool will require confirmation before executing.");
         }
         Err(e) => {
@@ -247,7 +260,8 @@ fn handle_init() {
         std::process::exit(1);
     }
 
-    let config_path: std::path::PathBuf = shellexpand::tilde("~/.askrc").into_owned().parse().unwrap();
+    let config_path: std::path::PathBuf =
+        shellexpand::tilde("~/.askrc").into_owned().parse().unwrap();
     if config_path.exists() {
         eprintln!("Error: ~/.askrc already exists.");
         eprintln!("Remove it first if you want to reinitialize.");
@@ -287,7 +301,11 @@ fn handle_init() {
                 "filesystem".to_string(),
                 config::McpServerDefinition {
                     command: npx_command.to_string(),
-                    args: vec!["-y".to_string(), "mcp-server-filesystem".to_string(), ".".to_string()],
+                    args: vec![
+                        "-y".to_string(),
+                        "mcp-server-filesystem".to_string(),
+                        ".".to_string(),
+                    ],
                     env: {
                         let mut env = std::collections::HashMap::new();
                         env.insert("DEBUG".to_string(), "1".to_string());

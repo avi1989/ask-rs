@@ -70,7 +70,9 @@ pub struct McpServerConfig {
     pub tool_prefix: String,
 }
 
-async fn create_mcp_service(config: &McpServerConfig) -> Result<McpService, Box<dyn std::error::Error>> {
+async fn create_mcp_service(
+    config: &McpServerConfig,
+) -> Result<McpService, Box<dyn std::error::Error>> {
     let command = config.command.clone();
     let args = config.args.clone();
     let env = config.env.clone();
@@ -116,34 +118,34 @@ fn convert_mcp_tool_to_openai(mcp_tool: &rmcp::model::Tool, prefix: &str) -> Too
                 .and_then(|d| d.as_str())
                 .map(|s| s.to_string());
 
-            let items = if matches!(schema_type, types::JSONSchemaType::Array) {
-                value.get("items").and_then(|items_value| {
-                    let item_type = items_value
-                        .get("type")
-                        .and_then(|t| t.as_str())
-                        .and_then(|t| match t {
-                            "string" => Some(types::JSONSchemaType::String),
-                            "number" | "integer" => Some(types::JSONSchemaType::Number),
-                            "boolean" => Some(types::JSONSchemaType::Boolean),
-                            "array" => Some(types::JSONSchemaType::Array),
-                            "object" => Some(types::JSONSchemaType::Object),
-                            _ => None,
-                        });
+            let items =
+                if matches!(schema_type, types::JSONSchemaType::Array) {
+                    value.get("items").map(|items_value| {
+                        let item_type = items_value.get("type").and_then(|t| t.as_str()).and_then(
+                            |t| match t {
+                                "string" => Some(types::JSONSchemaType::String),
+                                "number" | "integer" => Some(types::JSONSchemaType::Number),
+                                "boolean" => Some(types::JSONSchemaType::Boolean),
+                                "array" => Some(types::JSONSchemaType::Array),
+                                "object" => Some(types::JSONSchemaType::Object),
+                                _ => None,
+                            },
+                        );
 
-                    let item_description = items_value
-                        .get("description")
-                        .and_then(|d| d.as_str())
-                        .map(|s| s.to_string());
+                        let item_description = items_value
+                            .get("description")
+                            .and_then(|d| d.as_str())
+                            .map(|s| s.to_string());
 
-                    Some(Box::new(types::JSONSchemaDefine {
-                        schema_type: item_type,
-                        description: item_description,
-                        ..Default::default()
-                    }))
-                })
-            } else {
-                None
-            };
+                        Box::new(types::JSONSchemaDefine {
+                            schema_type: item_type,
+                            description: item_description,
+                            ..Default::default()
+                        })
+                    })
+                } else {
+                    None
+                };
 
             properties.insert(
                 key.clone(),
@@ -188,9 +190,7 @@ pub fn get_mcp_tools(service: &McpService, config: &McpServerConfig) -> Result<V
                     .iter()
                     .map(|tool| convert_mcp_tool_to_openai(tool, &config.tool_prefix))
                     .collect()),
-                Err(e) => {
-                    Err(format!("Failed to list tools: {}", e))
-                }
+                Err(e) => Err(format!("Failed to list tools: {}", e)),
             }
         })
     })
@@ -247,18 +247,26 @@ pub fn load_all_mcp_tools(registry: &McpRegistry, verbose: bool) -> Vec<Tool> {
                 }
             }
         } else {
-            eprintln!("Failed to load MCP server '{}': service not initialized", name);
+            eprintln!(
+                "Failed to load MCP server '{}': service not initialized",
+                name
+            );
             failed_servers.push(name.clone());
         }
     }
 
     if !loaded_servers.is_empty() && !verbose {
         let total_tools: usize = loaded_servers.iter().map(|(_, count)| count).sum();
-        let server_names: Vec<&str> = loaded_servers.iter().map(|(name, _)| name.as_str()).collect();
-        eprintln!("Loaded {} tools from {} MCP server(s): {}",
-                  total_tools,
-                  loaded_servers.len(),
-                  server_names.join(", "));
+        let server_names: Vec<&str> = loaded_servers
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        eprintln!(
+            "Loaded {} tools from {} MCP server(s): {}",
+            total_tools,
+            loaded_servers.len(),
+            server_names.join(", ")
+        );
     }
 
     all_tools

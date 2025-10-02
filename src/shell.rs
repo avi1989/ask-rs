@@ -15,22 +15,26 @@ pub fn detect_shell_kind() -> String {
         || env.contains_key("ZSH_VERSION")
         || env.contains_key("FISH_VERSION")
     {
-        return "POSIX".to_string()
+        return "POSIX".to_string();
     }
 
-    if cfg!(windows) {
-        if let Ok(comspec) = std::env::var("ComSpec") {
-            let name = Path::new(&comspec).file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if cfg!(windows)
+        && let Ok(comspec) = std::env::var("ComSpec") {
+            let name = Path::new(&comspec)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
             if name.eq_ignore_ascii_case("cmd.exe") {
                 return "Powershell".to_string();
             }
         }
-    }
 
     match parent_process_name().as_deref() {
-        Some("pwsh") | Some("powershell") | Some("powershell.exe") | Some("pwsh.exe") => "Powershell".to_string(),
-        Some("bash") | Some("zsh") | Some("fish") | Some("sh") |
-        Some("bash.exe") | Some("zsh.exe") | Some("fish.exe") | Some("sh.exe") => "POSIX".to_string(),
+        Some("pwsh") | Some("powershell") | Some("powershell.exe") | Some("pwsh.exe") => {
+            "Powershell".to_string()
+        }
+        Some("bash") | Some("zsh") | Some("fish") | Some("sh") | Some("bash.exe")
+        | Some("zsh.exe") | Some("fish.exe") | Some("sh.exe") => "POSIX".to_string(),
         _ => "POSIX".to_string(),
     }
 }
@@ -46,8 +50,8 @@ fn parent_process_name() -> Option<String> {
     }
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
+        use libc::{getppid, proc_name};
         use std::ffi::CStr;
-        use libc::{proc_name, getppid};
         unsafe {
             let mut buf = [0u8; 1024];
             let ppid = getppid();
@@ -59,7 +63,7 @@ fn parent_process_name() -> Option<String> {
     }
     #[cfg(windows)]
     {
-        use sysinfo::{System};
+        use sysinfo::System;
         let s = System::new_all();
         let pid = std::process::id();
         let proc = s.process(sysinfo::Pid::from_u32(pid))?;

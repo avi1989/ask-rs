@@ -2,8 +2,8 @@ pub(crate) mod mcp;
 
 use openai_api_rs::v1::chat_completion::Tool;
 use openai_api_rs::v1::{chat_completion, types};
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Deserialize, Serialize)]
 pub struct ExecuteCommandRequest {
@@ -38,8 +38,8 @@ pub fn execute_command(command: &str, working_directory: &str) -> String {
             } else {
                 format!("stdout:\n{stdout}\n---\nstderr:\n{stderr}")
             }
-        },
-        Err(e) => format!("Failed to execute command '{command}': {e}")
+        }
+        Err(e) => format!("Failed to execute command '{command}': {e}"),
     }
 }
 
@@ -57,7 +57,9 @@ pub fn execute_command_tool() -> Tool {
         "working_directory".to_string(),
         Box::new(types::JSONSchemaDefine {
             schema_type: Some(types::JSONSchemaType::String),
-            description: Some("The working directory for the command execution (optional)".to_string()),
+            description: Some(
+                "The working directory for the command execution (optional)".to_string(),
+            ),
             ..Default::default()
         }),
     );
@@ -70,8 +72,8 @@ pub fn execute_command_tool() -> Tool {
             parameters: types::FunctionParameters {
                 schema_type: types::JSONSchemaType::Object,
                 properties: Some(tool_props),
-                required: Some(vec!["command".to_string(), "working_directory".to_string()])
-            }
-        }
+                required: Some(vec!["command".to_string(), "working_directory".to_string()]),
+            },
+        },
     }
 }
