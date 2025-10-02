@@ -1,11 +1,8 @@
-// Rust
 use std::{collections::HashMap, path::Path};
 
 pub fn detect_shell_kind() -> String {
-    // Heuristics from env
     let env: HashMap<_, _> = std::env::vars().collect();
 
-    // PowerShell usually sets these
     if env.contains_key("POWERSHELL_DISTRIBUTION_CHANNEL")
         || env.contains_key("PSModulePath")
         || env.contains_key("PSExecutionPolicyPreference")
@@ -13,7 +10,6 @@ pub fn detect_shell_kind() -> String {
         return "Powershell".to_string();
     }
 
-    // POSIX-like hints
     if env.contains_key("SHELL")
         || env.contains_key("BASH_VERSION")
         || env.contains_key("ZSH_VERSION")
@@ -22,26 +18,23 @@ pub fn detect_shell_kind() -> String {
         return "POSIX".to_string()
     }
 
-    // Windows cmd hint (treat as non-Posix)
     if cfg!(windows) {
         if let Ok(comspec) = std::env::var("ComSpec") {
             let name = Path::new(&comspec).file_name().and_then(|n| n.to_str()).unwrap_or("");
             if name.eq_ignore_ascii_case("cmd.exe") {
-                return "Powershell".to_string(); // Non-POSIX; treat as not POSIX
+                return "Powershell".to_string();
             }
         }
     }
 
-    // Fallback: parent process name
     match parent_process_name().as_deref() {
         Some("pwsh") | Some("powershell") | Some("powershell.exe") | Some("pwsh.exe") => "Powershell".to_string(),
         Some("bash") | Some("zsh") | Some("fish") | Some("sh") |
-        Some("bash.exe") | Some("zsh.exe") | Some("fish.exe") | Some("sh.exe") => "Powershell".to_string(),
+        Some("bash.exe") | Some("zsh.exe") | Some("fish.exe") | Some("sh.exe") => "POSIX".to_string(),
         _ => "POSIX".to_string(),
     }
 }
 
-// Minimal parent-process name getter (sysinfo crate recommended for portability)
 fn parent_process_name() -> Option<String> {
     #[cfg(target_os = "linux")]
     {
@@ -66,7 +59,6 @@ fn parent_process_name() -> Option<String> {
     }
     #[cfg(windows)]
     {
-        // Use sysinfo for simplicity on Windows
         use sysinfo::{System};
         let s = System::new_all();
         let pid = std::process::id();

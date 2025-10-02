@@ -1,37 +1,63 @@
-use crate::tools::{ListFilesRequest, ListFilesToolRequest, list_all_files, list_all_files_tool, read_file, read_file_tool, execute_command_tool, ExecuteCommandRequest};
+use crate::config;
+use crate::shell::detect_shell_kind;
+use crate::tools::mcp::{execute_mcp_tool_call, load_all_mcp_tools, McpRegistry};
+use crate::tools::{execute_command_tool, ExecuteCommandRequest};
+use once_cell::sync::Lazy;
 use openai_api_rs::v1::chat_completion::{ChatCompletionMessage, ToolCall};
 use openai_api_rs::v1::{
     api::OpenAIClient,
     chat_completion::{self, ChatCompletionRequest},
 };
+use std::collections::HashSet;
 use std::env;
-use crate::shell::detect_shell_kind;
 use std::io::Write;
+use std::sync::Mutex;
+
+/// Track tools that have been auto-approved with "A" (accept all) option
+static AUTO_APPROVED_TOOLS: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 
 fn get_openai_client() -> OpenAIClient {
-    let api_key = env::var("OPENAI_API_KEY").unwrap().to_string();
+    let api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY is not set");
     OpenAIClient::builder()
         .with_api_key(api_key)
         .build()
-        .unwrap()
+        .expect("Failed to build OpenAI client")
 }
 
-pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> {
+pub async fn ask_question(question: &str, verbose: bool) -> Result<String, Box<anyhow::Error>> {
     let mut client = get_openai_client();
-    let model = "gpt-4.1".to_string();
+    let model = env::var("OPENAI_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
     let shell = detect_shell_kind();
+
+    let registry = match config::load_config() {
+        Ok(cfg) => {
+            {
+                let mut auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap();
+                for tool in &cfg.auto_approved_tools {
+                    auto_approved.insert(tool.clone());
+                }
+            }
+
+            let servers = config::config_to_servers(&cfg);
+            McpRegistry::from_servers(servers)
+        }
+        Err(e) => {
+            if verbose {
+                eprintln!("Warning: Failed to load MCP config: {}", e);
+                eprintln!("Continuing without MCP tools. Create ~/.askrc to enable MCP servers.");
+            }
+            McpRegistry::new()
+        }
+    };
+
+    let mut tools = vec![execute_command_tool()];
+    tools.extend(load_all_mcp_tools(&registry, verbose));
+
     let mut req = ChatCompletionRequest::new(
         model,
         vec![ChatCompletionMessage {
             role: chat_completion::MessageRole::system,
-            content: chat_completion::Content::Text(format!("\
-            You are a terminal assistant to the user. \
-            The user cannot reply to your messages; \
-            this is a one-way conversation. \n\
-            The current shell is {shell}. Make sure that commands generated \
-            apply to this shell. \n\
-            Format the results in markdown.
-            ").to_string()),
+            content: chat_completion::Content::Text(build_system_prompt(&shell)),
             name: None,
             tool_call_id: None,
             tool_calls: None,
@@ -42,15 +68,16 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
             tool_call_id: None,
             tool_calls: None
         }],
-    ).tools(vec![list_all_files_tool(), read_file_tool(), execute_command_tool()]).tool_choice(chat_completion::ToolChoiceType::Auto);
+    ).tools(tools).tool_choice(chat_completion::ToolChoiceType::Auto);
 
-    for _i in 0..21 {
-        let response_result = client.chat_completion(req.clone()).await;
-        let response = response_result.unwrap();
+    for _ in 0..MAX_TURNS {
+        let response = match client.chat_completion(req.clone()).await {
+            Ok(r) => r,
+            Err(e) => return Err(Box::from(anyhow::anyhow!(e.to_string()))),
+        };
 
         let (should_continue, result) = match response.choices[0].finish_reason {
             None => {
-                println!("{:?}", response.choices[0].message.content);
                 (
                     false,
                     Some(response.choices[0].message.content.clone().unwrap()),
@@ -71,7 +98,7 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
                     tool_call_id: None,
                 });
                 for tool_call in tool_calls {
-                    let (id, result) = execute_tool_call(tool_call);
+                    let (id, result) = execute_tool_call(tool_call, &registry, verbose);
                     req.messages.push(ChatCompletionMessage {
                         tool_call_id: Some(id),
                         role: chat_completion::MessageRole::tool,
@@ -95,44 +122,130 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
             continue;
         }
     }
-    Err(Box::from(anyhow::anyhow!("No response after 10 attempts")))
+    Err(Box::from(anyhow::anyhow!(format!("No response after {} attempts", MAX_TURNS))))
 }
 
-fn execute_tool_call(tool_call: ToolCall) -> (String, String) {
+fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool) -> (String, String) {
     let name = tool_call.function.name.clone().unwrap();
     let arguments = tool_call.function.arguments.unwrap();
     let id = tool_call.id;
-    let mut result: String = String::new();
+    let result: String;
+
     if name == "execute_command" {
         let args: ExecuteCommandRequest = serde_json::from_str(&arguments).unwrap();
-        print!("{}\nCan I execute the above command?", args.command);
-        std::io::stdout().flush().expect("Failed to flush stdout");
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input).expect("Failed to read user input");
-        if input.trim().to_lowercase() == "y" || input.trim().to_lowercase() == "yes" {
-            // Execute the command only if user approves
-            result = crate::tools::execute_command(&args.command, &args.working_directory);
-            if result.is_empty() {
-                result = "Executed".to_string()
+
+        let is_auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap().contains(&name);
+
+        let should_execute = if is_auto_approved {
+            if verbose {
+                println!("{}\n[Auto-approved]", args.command);
             }
+            true
+        } else {
+            print!("{}\nCan I execute the above command? [y/N/A]: ", args.command);
+            std::io::stdout().flush().expect("Failed to flush stdout");
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).expect("Failed to read user input");
+            let trimmed = input.trim().to_lowercase();
+
+            if trimmed == "a" || trimmed == "all" {
+                AUTO_APPROVED_TOOLS.lock().unwrap().insert(name.clone());
+                if let Err(e) = config::add_auto_approved_tool(&name) {
+                    if verbose {
+                        eprintln!("Warning: Failed to save auto-approval to config: {}", e);
+                        println!("All future '{}' commands will be auto-approved for this session only.", name);
+                    }
+                } else if verbose {
+                    println!("All future '{}' commands will be auto-approved (saved to config).", name);
+                }
+                true
+            } else {
+                trimmed == "y" || trimmed == "yes"
+            }
+        };
+
+        if should_execute {
+            let cmd_result = crate::tools::execute_command(&args.command, &args.working_directory);
+            result = if cmd_result.is_empty() {
+                "Executed".to_string()
+            } else {
+                cmd_result
+            };
         } else {
             result = "Command execution canceled by user.".to_string();
         }
     }
-    else if name == "list_all_files" {
-        let args: ListFilesRequest = serde_json::from_str(&arguments).unwrap();
-        println!("Listing files in {} (recursive: {})", args.base_path, args.recursive);
-        let files = list_all_files(args.base_path.as_str(), args.recursive);
-        for file in files {
-            result.push_str(&file);
-            result.push('\n');
+    else if let Some(server_config) = registry.find_server_for_tool(&name) {
+        let is_auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap().contains(&name);
+
+        let should_execute = if is_auto_approved {
+            if verbose {
+                let formatted_call = format_mcp_tool_call(&name, &arguments);
+                println!("\n{}\n[Auto-approved]", formatted_call);
+            }
+            true
+        } else {
+            let formatted_call = format_mcp_tool_call(&name, &arguments);
+            print!("\n{}\n\nExecute MCP tool '{}'? [y/N/A]: ", formatted_call, name);
+            std::io::stdout().flush().expect("Failed to flush stdout");
+
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).expect("Failed to read user input");
+            let trimmed = input.trim().to_lowercase();
+
+            if trimmed == "a" || trimmed == "all" {
+                AUTO_APPROVED_TOOLS.lock().unwrap().insert(name.clone());
+                if let Err(e) = config::add_auto_approved_tool(&name) {
+                    if verbose {
+                        eprintln!("Warning: Failed to save auto-approval to config: {}", e);
+                        println!("All future '{}' calls will be auto-approved for this session only.", name);
+                    }
+                } else if verbose {
+                    println!("All future '{}' calls will be auto-approved (saved to config).", name);
+                }
+                true
+            } else {
+                trimmed == "y" || trimmed == "yes"
+            }
+        };
+
+        if should_execute {
+            match execute_mcp_tool_call(server_config, &name, &arguments) {
+                Ok(response) => {
+                    result = response;
+                },
+                Err(err) => {
+                    result = format!("Error executing MCP tool {}: {}", name, err);
+                }
+            }
+        } else {
+            result = format!("MCP tool execution canceled by user.");
         }
-    } else if name == "read_file" {
-        let args: ListFilesToolRequest = serde_json::from_str(&arguments).unwrap();
-        println!("Reading file {}", args.file_path);
-        result = read_file(args.file_path.as_str());
-        result.push('\n');
+    }
+    else {
+        result = format!("Unknown tool: {}", name);
     }
 
     (id, result)
+}
+
+const DEFAULT_MODEL: &str = "gpt-4.1";
+const MAX_TURNS: usize = 21;
+
+fn format_mcp_tool_call(tool_name: &str, arguments: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(arguments) {
+        Ok(json) => {
+            let pretty = serde_json::to_string_pretty(&json).unwrap_or_else(|_| arguments.to_string());
+            format!("MCP Tool: {}\nArguments:\n{}", tool_name, pretty)
+        }
+        Err(_) => {
+            format!("MCP Tool: {}\nArguments: {}", tool_name, arguments)
+        }
+    }
+}
+
+fn build_system_prompt(shell: &str) -> String {
+    format!(
+        "You are a terminal assistant to the user. The user cannot reply to your messages; this is a one-way conversation.\nThe current shell is {shell}. Make sure that commands you generate apply to this shell.\nFormat the results in markdown."
+    )
 }

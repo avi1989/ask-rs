@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "git": {
+      "command": "uvx",
+      "args": ["mcp-server-git"],
+      "env": {}
+    },
+    "filesystem": {
+      "command": "uvx",
+      "args": ["mcp-server-filesystem", "--allowed-directory", "${HOME}/projects"],
+      "env": {
+        "DEBUG": "false"
+      }
+    },
+    "weather": {
+      "command": "node",
+      "args": ["/path/to/weather-mcp-server/index.js"],
+      "env": {
+        "WEATHER_API_KEY": "${WEATHER_API_KEY:-your-api-key-here}"
+      }
+    }
+  },
+  "autoApprovedTools": [
+    "git_status",
+    "git_log",
+    "git_diff"
+  ]
+}
