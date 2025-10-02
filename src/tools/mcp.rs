@@ -168,24 +168,22 @@ fn convert_mcp_tool_to_openai(mcp_tool: &rmcp::model::Tool, prefix: &str) -> Too
     }
 }
 
-pub fn get_mcp_tools(config: &McpServerConfig) -> Vec<Tool> {
+pub fn get_mcp_tools(config: &McpServerConfig) -> Result<Vec<Tool>, String> {
     tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {
             match create_mcp_service(config).await {
                 Ok(service) => match service.list_tools(Default::default()).await {
-                    Ok(tools_result) => tools_result
+                    Ok(tools_result) => Ok(tools_result
                         .tools
                         .iter()
                         .map(|tool| convert_mcp_tool_to_openai(tool, &config.tool_prefix))
-                        .collect(),
+                        .collect()),
                     Err(e) => {
-                        eprintln!("Failed to list MCP tools for {}: {}", config.tool_prefix, e);
-                        Vec::new()
+                        Err(format!("Failed to list tools: {}", e))
                     }
                 },
                 Err(e) => {
-                    eprintln!("Failed to connect to MCP server {}: {}", config.tool_prefix, e);
-                    Vec::new()
+                    Err(format!("Failed to connect: {}", e))
                 }
             }
         })
@@ -221,14 +219,38 @@ pub fn execute_mcp_tool_call(
 }
 
 /// Load all MCP tools from a registry
-pub fn load_all_mcp_tools(registry: &McpRegistry) -> Vec<Tool> {
+pub fn load_all_mcp_tools(registry: &McpRegistry, verbose: bool) -> Vec<Tool> {
     let mut all_tools = Vec::new();
+    let mut loaded_servers = Vec::new();
+    let mut failed_servers = Vec::new();
 
     for (name, config) in registry.servers() {
-        eprintln!("Loading MCP tools from server '{}'...", name);
-        let tools = get_mcp_tools(config);
-        eprintln!("  Loaded {} tools from '{}'", tools.len(), name);
-        all_tools.extend(tools);
+        if verbose {
+            eprintln!("Loading MCP tools from server '{}'...", name);
+        }
+        match get_mcp_tools(config) {
+            Ok(tools) => {
+                if verbose {
+                    eprintln!("  Loaded {} tools from '{}'", tools.len(), name);
+                }
+                loaded_servers.push((name.clone(), tools.len()));
+                all_tools.extend(tools);
+            }
+            Err(e) => {
+                eprintln!("Failed to load MCP server '{}': {}", name, e);
+                failed_servers.push(name.clone());
+            }
+        }
+    }
+
+    // Print summary if any servers were loaded
+    if !loaded_servers.is_empty() && !verbose {
+        let total_tools: usize = loaded_servers.iter().map(|(_, count)| count).sum();
+        let server_names: Vec<&str> = loaded_servers.iter().map(|(name, _)| name.as_str()).collect();
+        eprintln!("Loaded {} tools from {} MCP server(s): {}",
+                  total_tools,
+                  loaded_servers.len(),
+                  server_names.join(", "));
     }
 
     all_tools

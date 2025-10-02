@@ -24,7 +24,7 @@ fn get_openai_client() -> OpenAIClient {
         .expect("Failed to build OpenAI client")
 }
 
-pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> {
+pub async fn ask_question(question: &str, verbose: bool) -> Result<String, Box<anyhow::Error>> {
     let mut client = get_openai_client();
     let model = env::var("OPENAI_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
     let shell = detect_shell_kind();
@@ -44,14 +44,16 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
             McpRegistry::from_servers(servers)
         }
         Err(e) => {
-            eprintln!("Warning: Failed to load MCP config: {}", e);
-            eprintln!("Continuing without MCP tools. Create ~/.askrc to enable MCP servers.");
+            if verbose {
+                eprintln!("Warning: Failed to load MCP config: {}", e);
+                eprintln!("Continuing without MCP tools. Create ~/.askrc to enable MCP servers.");
+            }
             McpRegistry::new()
         }
     };
 
     let mut tools = vec![execute_command_tool()];
-    tools.extend(load_all_mcp_tools(&registry));
+    tools.extend(load_all_mcp_tools(&registry, verbose));
 
     let mut req = ChatCompletionRequest::new(
         model,
@@ -98,7 +100,7 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
                     tool_call_id: None,
                 });
                 for tool_call in tool_calls {
-                    let (id, result) = execute_tool_call(tool_call, &registry);
+                    let (id, result) = execute_tool_call(tool_call, &registry, verbose);
                     req.messages.push(ChatCompletionMessage {
                         tool_call_id: Some(id),
                         role: chat_completion::MessageRole::tool,
@@ -125,7 +127,7 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
     Err(Box::from(anyhow::anyhow!(format!("No response after {} attempts", MAX_TURNS))))
 }
 
-fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry) -> (String, String) {
+fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool) -> (String, String) {
     let name = tool_call.function.name.clone().unwrap();
     let arguments = tool_call.function.arguments.unwrap();
     let id = tool_call.id;
@@ -138,7 +140,9 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry) -> (String, St
         let is_auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap().contains(&name);
 
         let should_execute = if is_auto_approved {
-            println!("{}\n[Auto-approved]", args.command);
+            if verbose {
+                println!("{}\n[Auto-approved]", args.command);
+            }
             true
         } else {
             print!("{}\nCan I execute the above command? [y/N/A]: ", args.command);
@@ -151,9 +155,11 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry) -> (String, St
                 AUTO_APPROVED_TOOLS.lock().unwrap().insert(name.clone());
                 // Persist to config file
                 if let Err(e) = config::add_auto_approved_tool(&name) {
-                    eprintln!("Warning: Failed to save auto-approval to config: {}", e);
-                    println!("All future '{}' commands will be auto-approved for this session only.", name);
-                } else {
+                    if verbose {
+                        eprintln!("Warning: Failed to save auto-approval to config: {}", e);
+                        println!("All future '{}' commands will be auto-approved for this session only.", name);
+                    }
+                } else if verbose {
                     println!("All future '{}' commands will be auto-approved (saved to config).", name);
                 }
                 true
@@ -179,8 +185,10 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry) -> (String, St
         let is_auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap().contains(&name);
 
         let should_execute = if is_auto_approved {
-            let formatted_call = format_mcp_tool_call(&name, &arguments);
-            println!("\n{}\n[Auto-approved]", formatted_call);
+            if verbose {
+                let formatted_call = format_mcp_tool_call(&name, &arguments);
+                println!("\n{}\n[Auto-approved]", formatted_call);
+            }
             true
         } else {
             // Ask for permission before executing MCP tool
@@ -196,9 +204,11 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry) -> (String, St
                 AUTO_APPROVED_TOOLS.lock().unwrap().insert(name.clone());
                 // Persist to config file
                 if let Err(e) = config::add_auto_approved_tool(&name) {
-                    eprintln!("Warning: Failed to save auto-approval to config: {}", e);
-                    println!("All future '{}' calls will be auto-approved for this session only.", name);
-                } else {
+                    if verbose {
+                        eprintln!("Warning: Failed to save auto-approval to config: {}", e);
+                        println!("All future '{}' calls will be auto-approved for this session only.", name);
+                    }
+                } else if verbose {
                     println!("All future '{}' calls will be auto-approved (saved to config).", name);
                 }
                 true

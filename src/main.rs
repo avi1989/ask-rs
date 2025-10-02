@@ -12,6 +12,10 @@ struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
 
+    /// Enable verbose output
+    #[arg(short, long, global = true)]
+    verbose: bool,
+
     /// Question to ask the AI (if no subcommand is provided)
     #[arg(trailing_var_arg = true)]
     question: Vec<String>,
@@ -91,7 +95,7 @@ async fn main() {
                 std::process::exit(1);
             }
             let question = cli.question.join(" ");
-            let answer = llms::ask_question(&question).await.unwrap();
+            let answer = llms::ask_question(&question, cli.verbose).await.unwrap();
             markterm::render_text_to_stdout(&answer, None, markterm::ColorChoice::Auto).unwrap();
         }
     }
