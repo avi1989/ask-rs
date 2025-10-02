@@ -97,6 +97,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "futures",
  "markterm",
  "once_cell",
  "openai-api-rs",

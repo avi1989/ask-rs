@@ -30,10 +30,34 @@ impl McpRegistry {
     }
 
     pub async fn initialize_services(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        use futures::future::join_all;
+
+        // Spawn all MCP servers in parallel
+        let mut tasks = Vec::new();
         for (name, config) in &self.servers {
-            let service = create_mcp_service(config).await?;
-            self.services.insert(name.clone(), service);
+            let config_clone = config.clone();
+            let name_clone = name.clone();
+            tasks.push(async move {
+                let result = create_mcp_service(&config_clone).await;
+                (name_clone, result)
+            });
         }
+
+        // Wait for all to complete
+        let results = join_all(tasks).await;
+
+        // Collect successful services, log failures
+        for (name, result) in results {
+            match result {
+                Ok(service) => {
+                    self.services.insert(name, service);
+                }
+                Err(e) => {
+                    eprintln!("Warning: Failed to initialize MCP server '{}': {}", name, e);
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -63,6 +87,7 @@ impl Default for McpRegistry {
     }
 }
 
+#[derive(Clone)]
 pub struct McpServerConfig {
     pub command: String,
     pub args: Vec<String>,
