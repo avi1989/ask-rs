@@ -24,9 +24,12 @@ fn get_openai_client() -> OpenAIClient {
         .expect("Failed to build OpenAI client")
 }
 
-pub async fn ask_question(question: &str, verbose: bool) -> Result<String, Box<anyhow::Error>> {
+pub async fn ask_question(
+    question: &str,
+    model: &str,
+    verbose: bool,
+) -> Result<String, Box<anyhow::Error>> {
     let mut client = get_openai_client();
-    let model = env::var("OPENAI_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
     let shell = detect_shell_kind();
 
     let mut registry = match config::load_config() {
@@ -59,7 +62,7 @@ pub async fn ask_question(question: &str, verbose: bool) -> Result<String, Box<a
     tools.extend(load_all_mcp_tools(&registry, verbose));
 
     let mut req = ChatCompletionRequest::new(
-        model,
+        model.to_string(),
         vec![
             ChatCompletionMessage {
                 role: chat_completion::MessageRole::system,
@@ -268,7 +271,6 @@ fn execute_tool_call(
     (id, result)
 }
 
-const DEFAULT_MODEL: &str = "gpt-4.1";
 const MAX_TURNS: usize = 21;
 
 fn format_mcp_tool_call(tool_name: &str, arguments: &str) -> String {

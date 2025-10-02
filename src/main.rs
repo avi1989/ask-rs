@@ -16,6 +16,10 @@ struct Cli {
     #[arg(short, long, global = true)]
     verbose: bool,
 
+    /// The OPENAI model to use. Defaults to gpt-4.1-mini.
+    #[arg(short, long)]
+    model: Option<String>,
+
     /// Question to ask the AI (if no subcommand is provided)
     #[arg(trailing_var_arg = true)]
     question: Vec<String>,
@@ -106,8 +110,11 @@ async fn main() {
                 );
                 std::process::exit(1);
             }
+            let model = cli.model.unwrap_or("gpt-4.1-mini".to_string());
             let question = cli.question.join(" ");
-            let answer = llms::ask_question(&question, cli.verbose).await.unwrap();
+            let answer = llms::ask_question(&question, &model, cli.verbose)
+                .await
+                .unwrap();
             markterm::render_text_to_stdout(&answer, None, markterm::ColorChoice::Auto).unwrap();
         }
     }
