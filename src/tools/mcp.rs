@@ -34,10 +34,60 @@ use tokio::process::Command;
 
 type McpService = rmcp::service::RunningService<RoleClient, ()>;
 
+/// Registry to manage multiple MCP servers
+pub struct McpRegistry {
+    servers: HashMap<String, McpServerConfig>,
+}
+
+impl McpRegistry {
+    pub fn new() -> Self {
+        Self {
+            servers: HashMap::new(),
+        }
+    }
+
+    pub fn from_servers(servers: Vec<(String, McpServerConfig)>) -> Self {
+        Self {
+            servers: servers.into_iter().collect(),
+        }
+    }
+
+    pub fn add_server(&mut self, name: String, config: McpServerConfig) {
+        self.servers.insert(name, config);
+    }
+
+    pub fn get_server(&self, name: &str) -> Option<&McpServerConfig> {
+        self.servers.get(name)
+    }
+
+    pub fn find_server_for_tool(&self, tool_name: &str) -> Option<&McpServerConfig> {
+        // Tool names are formatted as "{prefix}_{actual_tool_name}"
+        // Find the server whose prefix matches the beginning of the tool name
+        for (_, config) in &self.servers {
+            let prefix_with_underscore = format!("{}_", config.tool_prefix);
+            if tool_name.starts_with(&prefix_with_underscore) {
+                return Some(config);
+            }
+        }
+        None
+    }
+
+    pub fn servers(&self) -> &HashMap<String, McpServerConfig> {
+        &self.servers
+    }
+}
+
+impl Default for McpRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Configuration for an MCP server
 pub struct McpServerConfig {
     pub command: String,
     pub args: Vec<String>,
+    pub env: HashMap<String, String>,
     pub tool_prefix: String,
 }
 
@@ -46,6 +96,7 @@ impl McpServerConfig {
         Self {
             command: command.into(),
             args,
+            env: HashMap::new(),
             tool_prefix: tool_prefix.into(),
         }
     }
@@ -54,11 +105,13 @@ impl McpServerConfig {
 async fn create_mcp_service(config: &McpServerConfig) -> Result<McpService, Box<dyn std::error::Error>> {
     let command = config.command.clone();
     let args = config.args.clone();
+    let env = config.env.clone();
 
     let service = ()
         .serve(TokioChildProcess::new(Command::new(&command).configure(
             move |cmd| {
                 cmd.args(&args);
+                cmd.envs(env);
             },
         ))?)
         .await?;
@@ -211,7 +264,21 @@ pub fn execute_mcp_tool_call(
     })
 }
 
-// Git-specific convenience functions
+/// Load all MCP tools from a registry
+pub fn load_all_mcp_tools(registry: &McpRegistry) -> Vec<Tool> {
+    let mut all_tools = Vec::new();
+
+    for (name, config) in registry.servers() {
+        eprintln!("Loading MCP tools from server '{}'...", name);
+        let tools = get_mcp_tools(config);
+        eprintln!("  Loaded {} tools from '{}'", tools.len(), name);
+        all_tools.extend(tools);
+    }
+
+    all_tools
+}
+
+// Git-specific convenience functions (for backward compatibility)
 pub fn git_mcp_tools() -> Vec<Tool> {
     let config = McpServerConfig::new("uvx", vec!["mcp-server-git".to_string()], "git");
     get_mcp_tools(&config)

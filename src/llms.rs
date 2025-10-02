@@ -1,4 +1,6 @@
-use crate::tools::{ListFilesRequest, ListFilesToolRequest, list_all_files, list_all_files_tool, read_file, read_file_tool, execute_command_tool, ExecuteCommandRequest, get_git_tools};
+use crate::config;
+use crate::tools::mcp::{McpRegistry, load_all_mcp_tools, execute_mcp_tool_call};
+use crate::tools::{ListFilesRequest, ListFilesToolRequest, list_all_files, list_all_files_tool, read_file, read_file_tool, execute_command_tool, ExecuteCommandRequest};
 use openai_api_rs::v1::chat_completion::{ChatCompletionMessage, ToolCall};
 use openai_api_rs::v1::{
     api::OpenAIClient,
@@ -21,8 +23,21 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
     let model = env::var("OPENAI_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
     let shell = detect_shell_kind();
 
+    // Load MCP configuration and build registry
+    let registry = match config::load_config() {
+        Ok(cfg) => {
+            let servers = config::config_to_servers(&cfg);
+            McpRegistry::from_servers(servers)
+        }
+        Err(e) => {
+            eprintln!("Warning: Failed to load MCP config: {}", e);
+            eprintln!("Continuing without MCP tools. Create ~/.askrc to enable MCP servers.");
+            McpRegistry::new()
+        }
+    };
+
     let mut tools = vec![list_all_files_tool(), read_file_tool(), execute_command_tool()];
-    tools.extend(get_git_tools());
+    tools.extend(load_all_mcp_tools(&registry));
 
     let mut req = ChatCompletionRequest::new(
         model,
@@ -69,7 +84,7 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
                     tool_call_id: None,
                 });
                 for tool_call in tool_calls {
-                    let (id, result) = execute_tool_call(tool_call);
+                    let (id, result) = execute_tool_call(tool_call, &registry);
                     req.messages.push(ChatCompletionMessage {
                         tool_call_id: Some(id),
                         role: chat_completion::MessageRole::tool,
@@ -96,11 +111,12 @@ pub async fn ask_question(question: &str) -> Result<String, Box<anyhow::Error>> 
     Err(Box::from(anyhow::anyhow!(format!("No response after {} attempts", MAX_TURNS))))
 }
 
-fn execute_tool_call(tool_call: ToolCall) -> (String, String) {
+fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry) -> (String, String) {
     let name = tool_call.function.name.clone().unwrap();
     let arguments = tool_call.function.arguments.unwrap();
     let id = tool_call.id;
     let mut result: String = String::new();
+
     if name == "execute_command" {
         let args: ExecuteCommandRequest = serde_json::from_str(&arguments).unwrap();
         print!("{}\nCan I execute the above command? [y/N]: ", args.command);
@@ -129,26 +145,20 @@ fn execute_tool_call(tool_call: ToolCall) -> (String, String) {
         result = read_file(args.file_path.as_str());
         result.push('\n');
     }
-    else if name.starts_with("git_") {
-        // Handle git MCP tool calls
-        match crate::tools::mcp::execute_git_tool_call(&name, &arguments) {
+    else if let Some(server_config) = registry.find_server_for_tool(&name) {
+        // Handle MCP tool calls dynamically based on the registry
+        match execute_mcp_tool_call(server_config, &name, &arguments) {
             Ok(response) => {
                 result = response;
             },
             Err(err) => {
-                result = format!("Error executing git tool {}: {}", name, err);
+                result = format!("Error executing MCP tool {}: {}", name, err);
             }
         }
     }
-    // Add more MCP server handlers here as needed
-    // Example:
-    // else if name.starts_with("filesystem_") {
-    //     let config = mcp::McpServerConfig::new("uvx", vec!["mcp-server-filesystem".to_string()], "filesystem");
-    //     match mcp::execute_mcp_tool_call(&config, &name, &arguments) {
-    //         Ok(response) => result = response,
-    //         Err(err) => result = format!("Error: {}", err),
-    //     }
-    // }
+    else {
+        result = format!("Unknown tool: {}", name);
+    }
 
     (id, result)
 }
