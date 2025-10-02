@@ -11,30 +11,45 @@ type McpService = rmcp::service::RunningService<RoleClient, ()>;
 
 pub struct McpRegistry {
     servers: HashMap<String, McpServerConfig>,
+    services: HashMap<String, McpService>,
 }
 
 impl McpRegistry {
     pub fn new() -> Self {
         Self {
             servers: HashMap::new(),
+            services: HashMap::new(),
         }
     }
 
     pub fn from_servers(servers: Vec<(String, McpServerConfig)>) -> Self {
         Self {
             servers: servers.into_iter().collect(),
+            services: HashMap::new(),
         }
     }
 
-    pub fn find_server_for_tool(&self, tool_name: &str) -> Option<&McpServerConfig> {
+    pub async fn initialize_services(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        for (name, config) in &self.servers {
+            let service = create_mcp_service(config).await?;
+            self.services.insert(name.clone(), service);
+        }
+        Ok(())
+    }
+
+    pub fn find_server_for_tool(&self, tool_name: &str) -> Option<(&str, &McpServerConfig)> {
         // Tool names are formatted as "{prefix}_{actual_tool_name}"
-        for (_, config) in &self.servers {
+        for (name, config) in &self.servers {
             let prefix_with_underscore = format!("{}_", config.tool_prefix);
             if tool_name.starts_with(&prefix_with_underscore) {
-                return Some(config);
+                return Some((name, config));
             }
         }
         None
+    }
+
+    pub fn get_service(&self, server_name: &str) -> Option<&McpService> {
+        self.services.get(server_name)
     }
 
     pub fn servers(&self) -> &HashMap<String, McpServerConfig> {
@@ -164,22 +179,17 @@ fn convert_mcp_tool_to_openai(mcp_tool: &rmcp::model::Tool, prefix: &str) -> Too
     }
 }
 
-pub fn get_mcp_tools(config: &McpServerConfig) -> Result<Vec<Tool>, String> {
+pub fn get_mcp_tools(service: &McpService, config: &McpServerConfig) -> Result<Vec<Tool>, String> {
     tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {
-            match create_mcp_service(config).await {
-                Ok(service) => match service.list_tools(Default::default()).await {
-                    Ok(tools_result) => Ok(tools_result
-                        .tools
-                        .iter()
-                        .map(|tool| convert_mcp_tool_to_openai(tool, &config.tool_prefix))
-                        .collect()),
-                    Err(e) => {
-                        Err(format!("Failed to list tools: {}", e))
-                    }
-                },
+            match service.list_tools(Default::default()).await {
+                Ok(tools_result) => Ok(tools_result
+                    .tools
+                    .iter()
+                    .map(|tool| convert_mcp_tool_to_openai(tool, &config.tool_prefix))
+                    .collect()),
                 Err(e) => {
-                    Err(format!("Failed to connect: {}", e))
+                    Err(format!("Failed to list tools: {}", e))
                 }
             }
         })
@@ -187,6 +197,7 @@ pub fn get_mcp_tools(config: &McpServerConfig) -> Result<Vec<Tool>, String> {
 }
 
 pub fn execute_mcp_tool_call(
+    service: &McpService,
     config: &McpServerConfig,
     name: &str,
     arguments: &str,
@@ -196,8 +207,6 @@ pub fn execute_mcp_tool_call(
 
     tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {
-            let service = create_mcp_service(config).await?;
-
             let args: Value = serde_json::from_str(arguments)?;
             let args_object = args.as_object().cloned();
 
@@ -222,18 +231,24 @@ pub fn load_all_mcp_tools(registry: &McpRegistry, verbose: bool) -> Vec<Tool> {
         if verbose {
             eprintln!("Loading MCP tools from server '{}'...", name);
         }
-        match get_mcp_tools(config) {
-            Ok(tools) => {
-                if verbose {
-                    eprintln!("  Loaded {} tools from '{}'", tools.len(), name);
+
+        if let Some(service) = registry.get_service(name) {
+            match get_mcp_tools(service, config) {
+                Ok(tools) => {
+                    if verbose {
+                        eprintln!("  Loaded {} tools from '{}'", tools.len(), name);
+                    }
+                    loaded_servers.push((name.clone(), tools.len()));
+                    all_tools.extend(tools);
                 }
-                loaded_servers.push((name.clone(), tools.len()));
-                all_tools.extend(tools);
+                Err(e) => {
+                    eprintln!("Failed to load MCP server '{}': {}", name, e);
+                    failed_servers.push(name.clone());
+                }
             }
-            Err(e) => {
-                eprintln!("Failed to load MCP server '{}': {}", name, e);
-                failed_servers.push(name.clone());
-            }
+        } else {
+            eprintln!("Failed to load MCP server '{}': service not initialized", name);
+            failed_servers.push(name.clone());
         }
     }
 

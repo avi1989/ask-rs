@@ -29,7 +29,7 @@ pub async fn ask_question(question: &str, verbose: bool) -> Result<String, Box<a
     let model = env::var("OPENAI_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
     let shell = detect_shell_kind();
 
-    let registry = match config::load_config() {
+    let mut registry = match config::load_config() {
         Ok(cfg) => {
             {
                 let mut auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap();
@@ -49,6 +49,11 @@ pub async fn ask_question(question: &str, verbose: bool) -> Result<String, Box<a
             McpRegistry::new()
         }
     };
+
+    // Initialize MCP services once
+    if let Err(e) = registry.initialize_services().await {
+        eprintln!("Warning: Failed to initialize MCP services: {}", e);
+    }
 
     let mut tools = vec![execute_command_tool()];
     tools.extend(load_all_mcp_tools(&registry, verbose));
@@ -175,7 +180,7 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool)
             result = "Command execution canceled by user.".to_string();
         }
     }
-    else if let Some(server_config) = registry.find_server_for_tool(&name) {
+    else if let Some((server_name, server_config)) = registry.find_server_for_tool(&name) {
         let is_auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap().contains(&name);
 
         let should_execute = if is_auto_approved {
@@ -210,13 +215,17 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool)
         };
 
         if should_execute {
-            match execute_mcp_tool_call(server_config, &name, &arguments) {
-                Ok(response) => {
-                    result = response;
-                },
-                Err(err) => {
-                    result = format!("Error executing MCP tool {}: {}", name, err);
+            if let Some(service) = registry.get_service(server_name) {
+                match execute_mcp_tool_call(service, server_config, &name, &arguments) {
+                    Ok(response) => {
+                        result = response;
+                    },
+                    Err(err) => {
+                        result = format!("Error executing MCP tool {}: {}", name, err);
+                    }
                 }
+            } else {
+                result = format!("Error: MCP service '{}' not initialized", server_name);
             }
         } else {
             result = format!("MCP tool execution canceled by user.");
