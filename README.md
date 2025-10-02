@@ -23,7 +23,7 @@ A powerful AI assistant CLI tool with dynamic MCP (Model Context Protocol) serve
 ### Build from Source
 
 ```bash
-git clone https://github.com/yourusername/ask-rs.git
+git clone https://github.com/avi1989/ask-rs.git
 cd ask-rs
 cargo build --release
 ```
@@ -482,7 +482,7 @@ Contributions are welcome! Please:
 
 ## License
 
-[Your chosen license]
+MIT License - see [LICENSE](LICENSE) file for details
 
 ## Acknowledgments
 
