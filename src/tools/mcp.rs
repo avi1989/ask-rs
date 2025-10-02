@@ -9,7 +9,6 @@ use tokio::process::Command;
 
 type McpService = rmcp::service::RunningService<RoleClient, ()>;
 
-/// Registry to manage multiple MCP servers
 pub struct McpRegistry {
     servers: HashMap<String, McpServerConfig>,
 }
@@ -29,7 +28,6 @@ impl McpRegistry {
 
     pub fn find_server_for_tool(&self, tool_name: &str) -> Option<&McpServerConfig> {
         // Tool names are formatted as "{prefix}_{actual_tool_name}"
-        // Find the server whose prefix matches the beginning of the tool name
         for (_, config) in &self.servers {
             let prefix_with_underscore = format!("{}_", config.tool_prefix);
             if tool_name.starts_with(&prefix_with_underscore) {
@@ -50,7 +48,6 @@ impl Default for McpRegistry {
     }
 }
 
-/// Configuration for an MCP server
 pub struct McpServerConfig {
     pub command: String,
     pub args: Vec<String>,
@@ -104,7 +101,6 @@ fn convert_mcp_tool_to_openai(mcp_tool: &rmcp::model::Tool, prefix: &str) -> Too
                 .and_then(|d| d.as_str())
                 .map(|s| s.to_string());
 
-            // Handle array items if this is an array type
             let items = if matches!(schema_type, types::JSONSchemaType::Array) {
                 value.get("items").and_then(|items_value| {
                     let item_type = items_value
@@ -195,7 +191,6 @@ pub fn execute_mcp_tool_call(
     name: &str,
     arguments: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    // Remove prefix to get the actual MCP tool name
     let prefix_with_underscore = format!("{}_", config.tool_prefix);
     let tool_name = name.strip_prefix(&prefix_with_underscore).unwrap_or(name);
 
@@ -218,7 +213,6 @@ pub fn execute_mcp_tool_call(
     })
 }
 
-/// Load all MCP tools from a registry
 pub fn load_all_mcp_tools(registry: &McpRegistry, verbose: bool) -> Vec<Tool> {
     let mut all_tools = Vec::new();
     let mut loaded_servers = Vec::new();
@@ -243,7 +237,6 @@ pub fn load_all_mcp_tools(registry: &McpRegistry, verbose: bool) -> Vec<Tool> {
         }
     }
 
-    // Print summary if any servers were loaded
     if !loaded_servers.is_empty() && !verbose {
         let total_tools: usize = loaded_servers.iter().map(|(_, count)| count).sum();
         let server_names: Vec<&str> = loaded_servers.iter().map(|(name, _)| name.as_str()).collect();
@@ -273,7 +266,6 @@ fn format_tool_result(result: &rmcp::model::CallToolResult) -> String {
                 ));
             }
             rmcp::model::RawContent::Resource(embedded_resource) => {
-                // Format the resource contents
                 output.push_str(&format!("[Resource: {:?}]\n", embedded_resource.resource));
             }
             rmcp::model::RawContent::Audio(audio_content) => {

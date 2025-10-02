@@ -12,10 +12,8 @@ pub struct ExecuteCommandRequest {
 }
 
 pub fn execute_command(command: &str, working_directory: &str) -> String {
-    // Detect shell based on platform and environment
     let shell_kind = crate::shell::detect_shell_kind();
 
-    // Configure the shell command based on the detected shell
     let (shell, flag) = if shell_kind == "Powershell" && cfg!(windows) {
         ("powershell", "-Command")
     } else if cfg!(windows) {
@@ -24,14 +22,12 @@ pub fn execute_command(command: &str, working_directory: &str) -> String {
         ("sh", "-c")
     };
 
-    // Run the command through the appropriate shell
     let output = std::process::Command::new(shell)
         .arg(flag)
         .arg(command)
         .current_dir(working_directory)
         .output();
 
-    // Process the command output
     match output {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();

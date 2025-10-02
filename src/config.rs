@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-/// Top-level configuration file structure
 #[derive(Debug, Deserialize, Serialize)]
 pub struct AskRcConfig {
     #[serde(rename = "mcpServers")]
@@ -18,7 +17,6 @@ pub struct AskRcConfig {
     pub auto_approved_tools: Vec<String>,
 }
 
-/// Individual MCP server configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct McpServerDefinition {
     pub command: String,
@@ -28,7 +26,6 @@ pub struct McpServerDefinition {
     pub env: HashMap<String, String>,
 }
 
-/// Load configuration from ~/.askrc or ./.askrc
 pub fn load_config() -> Result<AskRcConfig, Box<dyn std::error::Error>> {
     let config_path = find_config_file()?;
     let contents = fs::read_to_string(&config_path)
@@ -40,15 +37,12 @@ pub fn load_config() -> Result<AskRcConfig, Box<dyn std::error::Error>> {
     Ok(config)
 }
 
-/// Find the configuration file, checking ~/.askrc first, then ./.askrc
 fn find_config_file() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    // Try ~/.askrc first
     let home_config: PathBuf = shellexpand::tilde("~/.askrc").into_owned().parse()?;
     if home_config.exists() {
         return Ok(home_config);
     }
 
-    // Try ./.askrc
     let local_config = PathBuf::from("./.askrc");
     if local_config.exists() {
         return Ok(local_config);
@@ -57,7 +51,6 @@ fn find_config_file() -> Result<PathBuf, Box<dyn std::error::Error>> {
     Err("No configuration file found. Create ~/.askrc or ./.askrc".into())
 }
 
-/// Convert configuration to MCP server configs with tool prefixes
 pub fn config_to_servers(config: &AskRcConfig) -> Vec<(String, McpServerConfig)> {
     config
         .mcp_servers
@@ -78,7 +71,6 @@ pub fn config_to_servers(config: &AskRcConfig) -> Vec<(String, McpServerConfig)>
         .collect()
 }
 
-/// Save configuration to ~/.askrc
 pub fn save_config(config: &AskRcConfig) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let config_path: PathBuf = shellexpand::tilde("~/.askrc").into_owned().parse()?;
 
@@ -91,14 +83,12 @@ pub fn save_config(config: &AskRcConfig) -> Result<PathBuf, Box<dyn std::error::
     Ok(config_path)
 }
 
-/// Add a new MCP server to the configuration
 pub fn add_server(
     name: &str,
     command: String,
     args: Vec<String>,
     env: HashMap<String, String>,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    // Load existing config or create new one
     let mut config = match load_config() {
         Ok(cfg) => cfg,
         Err(_) => AskRcConfig {
@@ -107,7 +97,6 @@ pub fn add_server(
         },
     };
 
-    // Check if server already exists
     if config.mcp_servers.contains_key(name) {
         return Err(format!(
             "Server '{}' already exists. Remove it first with: ask-rs remove {}",
@@ -116,7 +105,6 @@ pub fn add_server(
         .into());
     }
 
-    // Add the new server
     config.mcp_servers.insert(
         name.to_string(),
         McpServerDefinition {
@@ -126,24 +114,19 @@ pub fn add_server(
         },
     );
 
-    // Save the config
     save_config(&config)
 }
 
 /// Remove an MCP server from the configuration
 pub fn remove_server(name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    // Load existing config
     let mut config = load_config()?;
 
-    // Check if server exists
     if !config.mcp_servers.contains_key(name) {
         return Err(format!("Server '{}' not found", name).into());
     }
 
-    // Remove the server
     config.mcp_servers.remove(name);
 
-    // Save the config
     save_config(&config)
 }
 
@@ -157,7 +140,6 @@ pub fn add_auto_approved_tool(tool_name: &str) -> Result<PathBuf, Box<dyn std::e
         },
     };
 
-    // Don't add duplicates
     if !config.auto_approved_tools.contains(&tool_name.to_string()) {
         config.auto_approved_tools.push(tool_name.to_string());
     }

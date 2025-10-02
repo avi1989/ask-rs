@@ -63,6 +63,9 @@ enum Commands {
 
     /// List all auto-approved tools
     Approvals,
+
+    /// Initialize ~/.askrc with default MCP servers
+    Init,
 }
 
 #[tokio::main]
@@ -88,8 +91,10 @@ async fn main() {
         Some(Commands::Approvals) => {
             handle_list_approvals();
         }
+        Some(Commands::Init) => {
+            handle_init();
+        }
         None => {
-            // Default behavior: ask a question
             if cli.question.is_empty() {
                 eprintln!("Error: Please provide a question or use a subcommand (list, add, remove)");
                 std::process::exit(1);
@@ -213,4 +218,120 @@ fn handle_list_approvals() {
             eprintln!("No configuration file found.");
         }
     }
+}
+
+fn handle_init() {
+    let npx_command = if cfg!(target_os = "windows") {
+        if check_command_exists("npx.cmd") {
+            "npx.cmd"
+        } else if check_command_exists("npx") {
+            "npx"
+        } else {
+            eprintln!("Error: 'npx' command not found in PATH.");
+            eprintln!("Please install Node.js/npm to use the filesystem MCP server.");
+            std::process::exit(1);
+        }
+    } else {
+        if !check_command_exists("npx") {
+            eprintln!("Error: 'npx' command not found in PATH.");
+            eprintln!("Please install Node.js/npm to use the filesystem MCP server.");
+            std::process::exit(1);
+        }
+        "npx"
+    };
+
+    let uvx_exists = check_command_exists("uvx");
+    if !uvx_exists {
+        eprintln!("Error: 'uvx' command not found in PATH.");
+        eprintln!("Please install uv (https://docs.astral.sh/uv/) to use the git MCP server.");
+        std::process::exit(1);
+    }
+
+    let config_path: std::path::PathBuf = shellexpand::tilde("~/.askrc").into_owned().parse().unwrap();
+    if config_path.exists() {
+        eprintln!("Error: ~/.askrc already exists.");
+        eprintln!("Remove it first if you want to reinitialize.");
+        std::process::exit(1);
+    }
+
+    println!("This will create ~/.askrc with the following MCP servers:");
+    println!();
+    println!("  1. filesystem - File system operations (using npx mcp-server-filesystem)");
+    println!("     Command: {} -y mcp-server-filesystem .", npx_command);
+    println!("     Provides tools for reading, writing, and managing files");
+    println!();
+    println!("  2. git - Git repository operations (using uvx mcp-server-git)");
+    println!("     Command: uvx mcp-server-git");
+    println!("     Provides tools for git commands and repository management");
+    println!();
+    println!("Location: {}", config_path.display());
+    println!();
+
+    print!("Continue? [y/N]: ");
+    use std::io::Write;
+    std::io::stdout().flush().unwrap();
+
+    let mut response = String::new();
+    std::io::stdin().read_line(&mut response).unwrap();
+    let response = response.trim().to_lowercase();
+
+    if response != "y" && response != "yes" {
+        println!("Cancelled.");
+        return;
+    }
+
+    let config = config::AskRcConfig {
+        mcp_servers: {
+            let mut servers = std::collections::HashMap::new();
+            servers.insert(
+                "filesystem".to_string(),
+                config::McpServerDefinition {
+                    command: npx_command.to_string(),
+                    args: vec!["-y".to_string(), "mcp-server-filesystem".to_string(), ".".to_string()],
+                    env: {
+                        let mut env = std::collections::HashMap::new();
+                        env.insert("DEBUG".to_string(), "1".to_string());
+                        env
+                    },
+                },
+            );
+            servers.insert(
+                "git".to_string(),
+                config::McpServerDefinition {
+                    command: "uvx".to_string(),
+                    args: vec!["mcp-server-git".to_string()],
+                    env: std::collections::HashMap::new(),
+                },
+            );
+            servers
+        },
+        auto_approved_tools: Vec::new(),
+    };
+
+    match config::save_config(&config) {
+        Ok(path) => {
+            println!("✓ Created configuration file at {:?}", path);
+            println!();
+            println!("You can now use ask-rs with MCP tools!");
+            println!("Try: ask-rs list files in current directory");
+        }
+        Err(e) => {
+            eprintln!("Error creating config: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn check_command_exists(command: &str) -> bool {
+    let checker = if cfg!(target_os = "windows") {
+        "where"
+    } else {
+        "which"
+    };
+
+    std::process::Command::new(checker)
+        .arg(command)
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
 }

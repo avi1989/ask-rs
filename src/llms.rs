@@ -29,10 +29,8 @@ pub async fn ask_question(question: &str, verbose: bool) -> Result<String, Box<a
     let model = env::var("OPENAI_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
     let shell = detect_shell_kind();
 
-    // Load MCP configuration and build registry
     let registry = match config::load_config() {
         Ok(cfg) => {
-            // Load auto-approved tools from config
             {
                 let mut auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap();
                 for tool in &cfg.auto_approved_tools {
@@ -136,7 +134,6 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool)
     if name == "execute_command" {
         let args: ExecuteCommandRequest = serde_json::from_str(&arguments).unwrap();
 
-        // Check if this tool is auto-approved
         let is_auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap().contains(&name);
 
         let should_execute = if is_auto_approved {
@@ -153,7 +150,6 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool)
 
             if trimmed == "a" || trimmed == "all" {
                 AUTO_APPROVED_TOOLS.lock().unwrap().insert(name.clone());
-                // Persist to config file
                 if let Err(e) = config::add_auto_approved_tool(&name) {
                     if verbose {
                         eprintln!("Warning: Failed to save auto-approval to config: {}", e);
@@ -169,7 +165,6 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool)
         };
 
         if should_execute {
-            // Execute the command
             let cmd_result = crate::tools::execute_command(&args.command, &args.working_directory);
             result = if cmd_result.is_empty() {
                 "Executed".to_string()
@@ -181,7 +176,6 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool)
         }
     }
     else if let Some(server_config) = registry.find_server_for_tool(&name) {
-        // Check if this tool is auto-approved
         let is_auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap().contains(&name);
 
         let should_execute = if is_auto_approved {
@@ -191,7 +185,6 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool)
             }
             true
         } else {
-            // Ask for permission before executing MCP tool
             let formatted_call = format_mcp_tool_call(&name, &arguments);
             print!("\n{}\n\nExecute MCP tool '{}'? [y/N/A]: ", formatted_call, name);
             std::io::stdout().flush().expect("Failed to flush stdout");
@@ -202,7 +195,6 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool)
 
             if trimmed == "a" || trimmed == "all" {
                 AUTO_APPROVED_TOOLS.lock().unwrap().insert(name.clone());
-                // Persist to config file
                 if let Err(e) = config::add_auto_approved_tool(&name) {
                     if verbose {
                         eprintln!("Warning: Failed to save auto-approval to config: {}", e);
@@ -218,7 +210,6 @@ fn execute_tool_call(tool_call: ToolCall, registry: &McpRegistry, verbose: bool)
         };
 
         if should_execute {
-            // Handle MCP tool calls dynamically based on the registry
             match execute_mcp_tool_call(server_config, &name, &arguments) {
                 Ok(response) => {
                     result = response;
@@ -242,7 +233,6 @@ const DEFAULT_MODEL: &str = "gpt-4.1";
 const MAX_TURNS: usize = 21;
 
 fn format_mcp_tool_call(tool_name: &str, arguments: &str) -> String {
-    // Parse arguments as JSON for pretty printing
     match serde_json::from_str::<serde_json::Value>(arguments) {
         Ok(json) => {
             let pretty = serde_json::to_string_pretty(&json).unwrap_or_else(|_| arguments.to_string());
