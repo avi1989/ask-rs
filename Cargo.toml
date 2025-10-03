@@ -1,7 +1,15 @@
 [package]
 name = "ask"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
+authors = ["Avinash Krishna Kumar"]
+description = "A powerful AI assistant CLI tool with dynamic MCP (Model Context Protocol) server support"
+repository = "https://github.com/avi1989/ask-rs"
+homepage = "https://github.com/avi1989/ask-rs"
+license = "MIT"
+keywords = ["cli", "ai", "assistant", "mcp", "openai"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
 
 [dependencies]
 anyhow = "1.0.100"

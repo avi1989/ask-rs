@@ -20,11 +20,30 @@ A powerful AI assistant CLI tool with dynamic MCP (Model Context Protocol) serve
 - OpenAI API key
 - MCP servers (e.g., `uvx` for Python-based MCP servers)
 
+### Download Binary
+
+**Linux (amd64):**
+```bash
+curl -L https://github.com/avi1989/ask-rs/releases/latest/download/ask_amd64 -o ask
+chmod +x ask
+sudo mv ask /usr/local/bin/
+```
+
+**macOS:**
+```bash
+curl -L https://github.com/avi1989/ask-rs/releases/latest/download/ask_darwin -o ask
+chmod +x ask
+sudo mv ask /usr/local/bin/
+```
+
+**Windows:**
+Download `ask.exe` from [releases](https://github.com/avi1989/ask-rs/releases/latest)
+
 ### Build from Source
 
 ```bash
-git clone https://github.com/avi1989/ask.git
-cd ask
+git clone https://github.com/avi1989/ask-rs.git
+cd ask-rs
 cargo build --release
 ```
 
@@ -391,9 +410,7 @@ ask what dependencies does this project use
 
 ### File Locations
 
-Configuration is loaded from (in order):
-1. `~/.askrc` (preferred)
-2. `./.askrc` (project-specific)
+The configuration file is located at `~/.askrc`
 
 ### Example Configuration
 
@@ -448,7 +465,6 @@ export OPENAI_API_KEY="sk-..."
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `OPENAI_API_KEY` | OpenAI API key (required) | - |
-| `OPENAI_MODEL` | Model to use | `gpt-4.1` |
 
 ## Contributing
 

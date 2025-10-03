@@ -368,7 +368,7 @@ pub fn load_cached_tools(registry: &McpRegistry, verbose: bool) -> Vec<ChatCompl
         }
     }
 
-    if loaded_count > 0 && !verbose {
+    if loaded_count > 0 && verbose {
         eprintln!("Loaded {loaded_count} MCP server(s) from cache");
     }
 

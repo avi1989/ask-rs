@@ -24,5 +24,7 @@
     "git_status",
     "git_log",
     "git_diff"
-  ]
+  ],
+  "baseUrl": null,
+  "defaultModel": "gpt-4o-mini"
 }
