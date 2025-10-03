@@ -1,6 +1,8 @@
 use crate::config;
 use crate::shell::detect_shell_kind;
-use crate::tools::mcp::{McpRegistry, execute_mcp_tool_call, load_all_mcp_tools};
+use crate::tools::mcp::{
+    McpRegistry, execute_mcp_tool_call, load_cached_tools, populate_cache_if_needed,
+};
 use crate::tools::{ExecuteCommandRequest, execute_command_tool};
 use async_openai::types::{
     ChatCompletionMessageToolCall, ChatCompletionRequestAssistantMessageArgs,
@@ -12,6 +14,7 @@ use async_openai::types::{
 };
 use async_openai::{Client, config::OpenAIConfig};
 use once_cell::sync::Lazy;
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::env;
 use std::io::Write;
@@ -54,13 +57,14 @@ pub async fn ask_question(
         }
     };
 
-    // Initialize MCP services once
-    if let Err(e) = registry.initialize_services().await {
-        eprintln!("Warning: Failed to initialize MCP services: {}", e);
+    // Populate cache if needed (first run only)
+    if let Err(e) = populate_cache_if_needed(&mut registry, verbose).await {
+        eprintln!("Warning: Failed to populate cache: {}", e);
     }
 
+    // Load tools from cache (fast)
     let mut tools = vec![execute_command_tool()];
-    tools.extend(load_all_mcp_tools(&registry, verbose));
+    tools.extend(load_cached_tools(&registry, verbose));
 
     let system_msg = ChatCompletionRequestSystemMessageArgs::default()
         .content(ChatCompletionRequestSystemMessageContent::Text(
@@ -85,6 +89,9 @@ pub async fn ask_question(
         .tool_choice(ChatCompletionToolChoiceOption::Auto)
         .build()
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+    // Wrap registry in RefCell for interior mutability
+    let registry = RefCell::new(registry);
 
     for _ in 0..MAX_TURNS {
         let response = match client.chat().create(req.clone()).await {
@@ -145,7 +152,7 @@ pub async fn ask_question(
 
 fn execute_tool_call(
     tool_call: ChatCompletionMessageToolCall,
-    registry: &McpRegistry,
+    registry: &RefCell<McpRegistry>,
     verbose: bool,
 ) -> (String, String) {
     let name = tool_call.function.name.clone();
@@ -207,7 +214,10 @@ fn execute_tool_call(
         } else {
             result = "Command execution canceled by user.".to_string();
         }
-    } else if let Some((server_name, server_config)) = registry.find_server_for_tool(&name) {
+    } else if let Some((server_name, server_config)) = registry.borrow().find_server_for_tool(&name)
+    {
+        let server_name = server_name.to_string();
+        let server_config = server_config.clone();
         let is_auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap().contains(&name);
 
         let should_execute = if is_auto_approved {
@@ -253,8 +263,29 @@ fn execute_tool_call(
         };
 
         if should_execute {
-            if let Some(service) = registry.get_service(server_name) {
-                match execute_mcp_tool_call(service, server_config, &name, &arguments) {
+            // Initialize server lazily if not already initialized
+            if registry.borrow().get_service(&server_name).is_none() {
+                if verbose {
+                    eprintln!("Initializing MCP server '{}'...", server_name);
+                }
+
+                let init_result = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        registry.borrow_mut().initialize_service(&server_name).await
+                    })
+                });
+
+                if let Err(e) = init_result {
+                    result = format!(
+                        "Error: Failed to initialize MCP server '{}': {}",
+                        server_name, e
+                    );
+                    return (id, result);
+                }
+            }
+
+            if let Some(service) = registry.borrow().get_service(&server_name) {
+                match execute_mcp_tool_call(service, &server_config, &name, &arguments) {
                     Ok(response) => {
                         result = response;
                     }
