@@ -2,12 +2,16 @@ use crate::config;
 use crate::shell::detect_shell_kind;
 use crate::tools::mcp::{McpRegistry, execute_mcp_tool_call, load_all_mcp_tools};
 use crate::tools::{ExecuteCommandRequest, execute_command_tool};
-use once_cell::sync::Lazy;
-use openai_api_rs::v1::chat_completion::{ChatCompletionMessage, ToolCall};
-use openai_api_rs::v1::{
-    api::OpenAIClient,
-    chat_completion::{self, ChatCompletionRequest},
+use async_openai::types::{
+    ChatCompletionMessageToolCall, ChatCompletionRequestAssistantMessageArgs,
+    ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
+    ChatCompletionRequestSystemMessageContent, ChatCompletionRequestToolMessageArgs,
+    ChatCompletionRequestToolMessageContent, ChatCompletionRequestUserMessageArgs,
+    ChatCompletionRequestUserMessageContent, ChatCompletionToolChoiceOption,
+    CreateChatCompletionRequestArgs, FinishReason,
 };
+use async_openai::{Client, config::OpenAIConfig};
+use once_cell::sync::Lazy;
 use std::collections::HashSet;
 use std::env;
 use std::io::Write;
@@ -16,12 +20,9 @@ use std::sync::Mutex;
 /// Track tools that have been auto-approved with "A" (accept all) option
 static AUTO_APPROVED_TOOLS: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 
-fn get_openai_client() -> OpenAIClient {
+fn get_openai_client() -> Client<OpenAIConfig> {
     let api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY is not set");
-    OpenAIClient::builder()
-        .with_api_key(api_key)
-        .build()
-        .expect("Failed to build OpenAI client")
+    Client::with_config(OpenAIConfig::new().with_api_key(api_key))
 }
 
 pub async fn ask_question(
@@ -29,7 +30,7 @@ pub async fn ask_question(
     model: &str,
     verbose: bool,
 ) -> Result<String, Box<anyhow::Error>> {
-    let mut client = get_openai_client();
+    let client = get_openai_client();
     let shell = detect_shell_kind();
 
     let mut registry = match config::load_config() {
@@ -61,30 +62,32 @@ pub async fn ask_question(
     let mut tools = vec![execute_command_tool()];
     tools.extend(load_all_mcp_tools(&registry, verbose));
 
-    let mut req = ChatCompletionRequest::new(
-        model.to_string(),
-        vec![
-            ChatCompletionMessage {
-                role: chat_completion::MessageRole::system,
-                content: chat_completion::Content::Text(build_system_prompt(&shell)),
-                name: None,
-                tool_call_id: None,
-                tool_calls: None,
-            },
-            ChatCompletionMessage {
-                role: chat_completion::MessageRole::user,
-                content: chat_completion::Content::Text(question.to_string()),
-                name: None,
-                tool_call_id: None,
-                tool_calls: None,
-            },
-        ],
-    )
-    .tools(tools)
-    .tool_choice(chat_completion::ToolChoiceType::Auto);
+    let system_msg = ChatCompletionRequestSystemMessageArgs::default()
+        .content(ChatCompletionRequestSystemMessageContent::Text(
+            build_system_prompt(&shell),
+        ))
+        .build()
+        .map(ChatCompletionRequestMessage::System)
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+    let user_msg = ChatCompletionRequestUserMessageArgs::default()
+        .content(ChatCompletionRequestUserMessageContent::Text(
+            question.to_string(),
+        ))
+        .build()
+        .map(ChatCompletionRequestMessage::User)
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
+    let mut req = CreateChatCompletionRequestArgs::default()
+        .model(model.to_string())
+        .messages(vec![system_msg, user_msg])
+        .tools(tools)
+        .tool_choice(ChatCompletionToolChoiceOption::Auto)
+        .build()
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
     for _ in 0..MAX_TURNS {
-        let response = match client.chat_completion(req.clone()).await {
+        let response = match client.chat().create(req.clone()).await {
             Ok(r) => r,
             Err(e) => return Err(Box::from(anyhow::anyhow!(e.to_string()))),
         };
@@ -94,29 +97,30 @@ pub async fn ask_question(
                 false,
                 Some(response.choices[0].message.content.clone().unwrap()),
             ),
-            Some(chat_completion::FinishReason::stop) => (
+            Some(FinishReason::Stop) => (
                 false,
                 Some(response.choices[0].message.content.clone().unwrap()),
             ),
-            Some(chat_completion::FinishReason::length) => (false, None),
-            Some(chat_completion::FinishReason::tool_calls) => {
+            Some(FinishReason::Length) => (false, None),
+            Some(FinishReason::ToolCalls) => {
                 let tool_calls = response.choices[0].message.tool_calls.clone().unwrap();
-                req.messages.push(ChatCompletionMessage {
-                    role: chat_completion::MessageRole::assistant,
-                    content: chat_completion::Content::Text(String::new()),
-                    tool_calls: Some(tool_calls.clone()),
-                    name: None,
-                    tool_call_id: None,
-                });
+
+                let assistant_msg = ChatCompletionRequestAssistantMessageArgs::default()
+                    .tool_calls(tool_calls.clone())
+                    .build()
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                req.messages
+                    .push(ChatCompletionRequestMessage::Assistant(assistant_msg));
+
                 for tool_call in tool_calls {
                     let (id, result) = execute_tool_call(tool_call, &registry, verbose);
-                    req.messages.push(ChatCompletionMessage {
-                        tool_call_id: Some(id),
-                        role: chat_completion::MessageRole::tool,
-                        content: chat_completion::Content::Text(result),
-                        name: None,
-                        tool_calls: None,
-                    });
+                    let tool_msg = ChatCompletionRequestToolMessageArgs::default()
+                        .tool_call_id(id)
+                        .content(ChatCompletionRequestToolMessageContent::Text(result))
+                        .build()
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    req.messages
+                        .push(ChatCompletionRequestMessage::Tool(tool_msg));
                 }
 
                 (true, None)
@@ -140,13 +144,13 @@ pub async fn ask_question(
 }
 
 fn execute_tool_call(
-    tool_call: ToolCall,
+    tool_call: ChatCompletionMessageToolCall,
     registry: &McpRegistry,
     verbose: bool,
 ) -> (String, String) {
-    let name = tool_call.function.name.clone().unwrap();
-    let arguments = tool_call.function.arguments.unwrap();
-    let id = tool_call.id;
+    let name = tool_call.function.name.clone();
+    let arguments = tool_call.function.arguments.clone();
+    let id = tool_call.id.clone();
     let result: String;
 
     if name == "execute_command" {

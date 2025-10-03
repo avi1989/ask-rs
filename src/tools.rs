@@ -1,9 +1,8 @@
 pub(crate) mod mcp;
 
-use openai_api_rs::v1::chat_completion::Tool;
-use openai_api_rs::v1::{chat_completion, types};
+use async_openai::types::{ChatCompletionTool, ChatCompletionToolType, FunctionObject};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde_json::json;
 
 #[derive(Deserialize, Serialize)]
 pub struct ExecuteCommandRequest {
@@ -43,37 +42,21 @@ pub fn execute_command(command: &str, working_directory: &str) -> String {
     }
 }
 
-pub fn execute_command_tool() -> Tool {
-    let mut tool_props = HashMap::new();
-    tool_props.insert(
-        "command".to_string(),
-        Box::new(types::JSONSchemaDefine {
-            schema_type: Some(types::JSONSchemaType::String),
-            description: Some("The command to be executed".to_string()),
-            ..Default::default()
-        }),
-    );
-    tool_props.insert(
-        "working_directory".to_string(),
-        Box::new(types::JSONSchemaDefine {
-            schema_type: Some(types::JSONSchemaType::String),
-            description: Some(
-                "The working directory for the command execution (optional)".to_string(),
-            ),
-            ..Default::default()
-        }),
-    );
-
-    Tool {
-        r#type: chat_completion::ToolType::Function,
-        function: types::Function {
-            name: String::from("execute_command"),
-            description: Some(String::from("Execute a command on the Operating System")),
-            parameters: types::FunctionParameters {
-                schema_type: types::JSONSchemaType::Object,
-                properties: Some(tool_props),
-                required: Some(vec!["command".to_string(), "working_directory".to_string()]),
-            },
+pub fn execute_command_tool() -> ChatCompletionTool {
+    ChatCompletionTool {
+        r#type: ChatCompletionToolType::Function,
+        function: FunctionObject {
+            name: "execute_command".to_string(),
+            description: Some("Execute a command on the Operating System".to_string()),
+            parameters: Some(json!({
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "The command to be executed"},
+                    "working_directory": {"type": "string", "description": "The working directory for the command execution (optional)"}
+                },
+                "required": ["command", "working_directory"]
+            })),
+            strict: None,
         },
     }
 }

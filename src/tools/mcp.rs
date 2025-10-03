@@ -1,5 +1,4 @@
-use openai_api_rs::v1::chat_completion::Tool;
-use openai_api_rs::v1::{chat_completion, types};
+use async_openai::types::{ChatCompletionTool, ChatCompletionToolType, FunctionObject};
 use rmcp::model::CallToolRequestParam;
 use rmcp::service::{RoleClient, ServiceExt};
 use rmcp::transport::{ConfigureCommandExt, TokioChildProcess};
@@ -114,99 +113,26 @@ async fn create_mcp_service(
     Ok(service)
 }
 
-fn convert_mcp_tool_to_openai(mcp_tool: &rmcp::model::Tool, prefix: &str) -> Tool {
-    let mut properties = HashMap::new();
-    let mut required = Vec::new();
-
-    let input_schema = &mcp_tool.input_schema;
-    if let Some(props) = input_schema.get("properties").and_then(|v| v.as_object()) {
-        for (key, value) in props {
-            let schema_type = value
-                .get("type")
-                .and_then(|t| t.as_str())
-                .and_then(|t| match t {
-                    "string" => Some(types::JSONSchemaType::String),
-                    "number" | "integer" => Some(types::JSONSchemaType::Number),
-                    "boolean" => Some(types::JSONSchemaType::Boolean),
-                    "array" => Some(types::JSONSchemaType::Array),
-                    "object" => Some(types::JSONSchemaType::Object),
-                    _ => None,
-                });
-
-            // Skip properties without a valid schema type
-            let Some(schema_type) = schema_type else {
-                continue;
-            };
-
-            let description = value
-                .get("description")
-                .and_then(|d| d.as_str())
-                .map(|s| s.to_string());
-
-            let items =
-                if matches!(schema_type, types::JSONSchemaType::Array) {
-                    value.get("items").map(|items_value| {
-                        let item_type = items_value.get("type").and_then(|t| t.as_str()).and_then(
-                            |t| match t {
-                                "string" => Some(types::JSONSchemaType::String),
-                                "number" | "integer" => Some(types::JSONSchemaType::Number),
-                                "boolean" => Some(types::JSONSchemaType::Boolean),
-                                "array" => Some(types::JSONSchemaType::Array),
-                                "object" => Some(types::JSONSchemaType::Object),
-                                _ => None,
-                            },
-                        );
-
-                        let item_description = items_value
-                            .get("description")
-                            .and_then(|d| d.as_str())
-                            .map(|s| s.to_string());
-
-                        Box::new(types::JSONSchemaDefine {
-                            schema_type: item_type,
-                            description: item_description,
-                            ..Default::default()
-                        })
-                    })
-                } else {
-                    None
-                };
-
-            properties.insert(
-                key.clone(),
-                Box::new(types::JSONSchemaDefine {
-                    schema_type: Some(schema_type),
-                    description,
-                    items,
-                    ..Default::default()
-                }),
-            );
-        }
-    }
-
-    if let Some(req) = input_schema.get("required").and_then(|v| v.as_array()) {
-        for item in req {
-            if let Some(s) = item.as_str() {
-                required.push(s.to_string());
-            }
-        }
-    }
-
-    Tool {
-        r#type: chat_completion::ToolType::Function,
-        function: types::Function {
-            name: format!("{}_{}", prefix, mcp_tool.name),
-            description: mcp_tool.description.as_ref().map(|s| s.to_string()),
-            parameters: types::FunctionParameters {
-                schema_type: types::JSONSchemaType::Object,
-                properties: Some(properties),
-                required: Some(required),
-            },
+fn convert_mcp_tool_to_openai(mcp_tool: &rmcp::model::Tool, prefix: &str) -> ChatCompletionTool {
+    // Simply pass through the MCP tool's JSON Schema as-is into async-openai's FunctionObject
+    let name = format!("{}_{}", prefix, mcp_tool.name);
+    ChatCompletionTool {
+        r#type: ChatCompletionToolType::Function,
+        function: FunctionObject {
+            name,
+            description: mcp_tool.description.as_ref().map(|c| c.to_string()),
+            parameters: Some(serde_json::Value::Object(
+                mcp_tool.input_schema.as_ref().clone(),
+            )),
+            strict: None,
         },
     }
 }
 
-pub fn get_mcp_tools(service: &McpService, config: &McpServerConfig) -> Result<Vec<Tool>, String> {
+pub fn get_mcp_tools(
+    service: &McpService,
+    config: &McpServerConfig,
+) -> Result<Vec<ChatCompletionTool>, String> {
     tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {
             match service.list_tools(Default::default()).await {
@@ -247,7 +173,7 @@ pub fn execute_mcp_tool_call(
     })
 }
 
-pub fn load_all_mcp_tools(registry: &McpRegistry, verbose: bool) -> Vec<Tool> {
+pub fn load_all_mcp_tools(registry: &McpRegistry, verbose: bool) -> Vec<ChatCompletionTool> {
     let mut all_tools = Vec::new();
     let mut loaded_servers = Vec::new();
     let mut failed_servers = Vec::new();
