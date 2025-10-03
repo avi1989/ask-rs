@@ -56,7 +56,7 @@ impl McpRegistry {
                     self.services.insert(name, service);
                 }
                 Err(e) => {
-                    eprintln!("Warning: Failed to initialize MCP server '{}': {}", name, e);
+                    eprintln!("Warning: Failed to initialize MCP server '{name}': {e}");
                 }
             }
         }
@@ -113,7 +113,7 @@ impl McpRegistry {
                 Err(e) => Err(e),
             }
         } else {
-            Err(format!("Server '{}' not found in registry", server_name).into())
+            Err(format!("Server '{server_name}' not found in registry").into())
         }
     }
 }
@@ -212,7 +212,7 @@ pub fn get_mcp_tools(
                     .iter()
                     .map(|tool| convert_mcp_tool_to_openai(tool, &config.tool_prefix))
                     .collect()),
-                Err(e) => Err(format!("Failed to list tools: {}", e)),
+                Err(e) => Err(format!("Failed to list tools: {e}")),
             }
         })
     })
@@ -322,12 +322,12 @@ pub async fn populate_cache_if_needed(
                     if let Ok(tools) = get_mcp_tools(&service, &config) {
                         update_cache_for_server(&name, &config, tools);
                         if verbose {
-                            eprintln!("  Cached tools for '{}'", name);
+                            eprintln!("  Cached tools for '{name}'");
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("Warning: Failed to initialize MCP server '{}': {}", name, e);
+                    eprintln!("Warning: Failed to initialize MCP server '{name}': {e}");
                 }
             }
         }
@@ -364,12 +364,12 @@ pub fn load_cached_tools(registry: &McpRegistry, verbose: bool) -> Vec<ChatCompl
         }
 
         if verbose {
-            eprintln!("No cache for '{}', will initialize on first use", name);
+            eprintln!("No cache for '{name}', will initialize on first use");
         }
     }
 
     if loaded_count > 0 && !verbose {
-        eprintln!("Loaded {} MCP server(s) from cache", loaded_count);
+        eprintln!("Loaded {loaded_count} MCP server(s) from cache");
     }
 
     all_tools
@@ -399,7 +399,7 @@ pub fn load_all_mcp_tools(registry: &McpRegistry, verbose: bool) -> Vec<ChatComp
 
     for (name, config) in registry.servers() {
         if verbose {
-            eprintln!("Loading MCP tools from server '{}'...", name);
+            eprintln!("Loading MCP tools from server '{name}'...");
         }
 
         if let Some(service) = registry.get_service(name) {
@@ -412,15 +412,12 @@ pub fn load_all_mcp_tools(registry: &McpRegistry, verbose: bool) -> Vec<ChatComp
                     all_tools.extend(tools);
                 }
                 Err(e) => {
-                    eprintln!("Failed to load MCP server '{}': {}", name, e);
+                    eprintln!("Failed to load MCP server '{name}': {e}");
                     failed_servers.push(name.clone());
                 }
             }
         } else {
-            eprintln!(
-                "Failed to load MCP server '{}': service not initialized",
-                name
-            );
+            eprintln!("Failed to load MCP server '{name}': service not initialized");
             failed_servers.push(name.clone());
         }
     }
@@ -475,7 +472,7 @@ fn format_tool_result(result: &rmcp::model::CallToolResult) -> String {
     }
 
     if result.is_error.unwrap_or(false) {
-        format!("Error: {}", output)
+        format!("Error: {output}")
     } else {
         output
     }

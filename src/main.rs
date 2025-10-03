@@ -131,7 +131,7 @@ fn handle_list() {
 
             println!("Configured MCP servers:\n");
             for (name, server) in &cfg.mcp_servers {
-                println!("  {}", name);
+                println!("  {name}");
                 println!("    Command: {}", server.command);
                 if !server.args.is_empty() {
                     println!("    Args: {}", server.args.join(" "));
@@ -139,14 +139,14 @@ fn handle_list() {
                 if !server.env.is_empty() {
                     println!("    Env:");
                     for (k, v) in &server.env {
-                        println!("      {}={}", k, v);
+                        println!("      {k}={v}");
                     }
                 }
                 println!();
             }
         }
         Err(e) => {
-            eprintln!("Error loading config: {}", e);
+            eprintln!("Error loading config: {e}");
             eprintln!("Run 'ask-rs add' to create your first MCP server.");
         }
     }
@@ -158,16 +158,16 @@ fn handle_add(name: String, command: String, args: Vec<String>, env_pairs: Vec<S
         if let Some((key, value)) = pair.split_once('=') {
             env.insert(key.to_string(), value.to_string());
         } else {
-            eprintln!("Warning: Invalid env format '{}', expected KEY=VALUE", pair);
+            eprintln!("Warning: Invalid env format '{pair}', expected KEY=VALUE");
         }
     }
 
     match config::add_server(&name, command, args, env) {
         Ok(path) => {
-            println!("✓ Added MCP server '{}' to {:?}", name, path);
+            println!("✓ Added MCP server '{name}' to {path:?}");
         }
         Err(e) => {
-            eprintln!("Error adding server: {}", e);
+            eprintln!("Error adding server: {e}");
             std::process::exit(1);
         }
     }
@@ -176,10 +176,10 @@ fn handle_add(name: String, command: String, args: Vec<String>, env_pairs: Vec<S
 fn handle_remove(name: String) {
     match config::remove_server(&name) {
         Ok(path) => {
-            println!("✓ Removed MCP server '{}' from {:?}", name, path);
+            println!("✓ Removed MCP server '{name}' from {path:?}");
         }
         Err(e) => {
-            eprintln!("Error removing server: {}", e);
+            eprintln!("Error removing server: {e}");
             std::process::exit(1);
         }
     }
@@ -188,14 +188,11 @@ fn handle_remove(name: String) {
 fn handle_approve(tool_name: String) {
     match config::add_auto_approved_tool(&tool_name) {
         Ok(path) => {
-            println!(
-                "✓ Tool '{}' will be auto-approved (saved to {:?})",
-                tool_name, path
-            );
+            println!("✓ Tool '{tool_name}' will be auto-approved (saved to {path:?})");
             println!("  This tool will execute without prompting in future sessions.");
         }
         Err(e) => {
-            eprintln!("Error approving tool: {}", e);
+            eprintln!("Error approving tool: {e}");
             std::process::exit(1);
         }
     }
@@ -204,14 +201,11 @@ fn handle_approve(tool_name: String) {
 fn handle_unapprove(tool_name: String) {
     match config::remove_auto_approved_tool(&tool_name) {
         Ok(path) => {
-            println!(
-                "✓ Tool '{}' removed from auto-approve list (saved to {:?})",
-                tool_name, path
-            );
+            println!("✓ Tool '{tool_name}' removed from auto-approve list (saved to {path:?})");
             println!("  This tool will require confirmation before executing.");
         }
         Err(e) => {
-            eprintln!("Error unapproving tool: {}", e);
+            eprintln!("Error unapproving tool: {e}");
             std::process::exit(1);
         }
     }
@@ -228,13 +222,13 @@ fn handle_list_approvals() {
 
             println!("Auto-approved tools:\n");
             for tool in &tools {
-                println!("  ✓ {}", tool);
+                println!("  ✓ {tool}");
             }
             println!("\nThese tools will execute without prompting.");
             println!("Remove with: ask-rs unapprove <tool_name>");
         }
         Err(e) => {
-            eprintln!("Error listing approvals: {}", e);
+            eprintln!("Error listing approvals: {e}");
             eprintln!("No configuration file found.");
         }
     }
@@ -278,7 +272,7 @@ fn handle_init() {
     println!("This will create ~/.askrc with the following MCP servers:");
     println!();
     println!("  1. filesystem - File system operations (using npx mcp-server-filesystem)");
-    println!("     Command: {} -y mcp-server-filesystem .", npx_command);
+    println!("     Command: {npx_command} -y mcp-server-filesystem .");
     println!("     Provides tools for reading, writing, and managing files");
     println!();
     println!("  2. git - Git repository operations (using uvx mcp-server-git)");
@@ -335,13 +329,13 @@ fn handle_init() {
 
     match config::save_config(&config) {
         Ok(path) => {
-            println!("✓ Created configuration file at {:?}", path);
+            println!("✓ Created configuration file at {path:?}");
             println!();
             println!("You can now use ask-rs with MCP tools!");
             println!("Try: ask-rs list files in current directory");
         }
         Err(e) => {
-            eprintln!("Error creating config: {}", e);
+            eprintln!("Error creating config: {e}");
             std::process::exit(1);
         }
     }

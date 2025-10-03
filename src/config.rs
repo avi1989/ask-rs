@@ -29,10 +29,10 @@ pub struct McpServerDefinition {
 pub fn load_config() -> Result<AskRcConfig, Box<dyn std::error::Error>> {
     let config_path = find_config_file()?;
     let contents = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config file {:?}: {}", config_path, e))?;
+        .map_err(|e| format!("Failed to read config file {config_path:?}: {e}"))?;
 
     let config: AskRcConfig = serde_json::from_str(&contents)
-        .map_err(|e| format!("Failed to parse config file {:?}: {}", config_path, e))?;
+        .map_err(|e| format!("Failed to parse config file {config_path:?}: {e}"))?;
 
     Ok(config)
 }
@@ -75,10 +75,10 @@ pub fn save_config(config: &AskRcConfig) -> Result<PathBuf, Box<dyn std::error::
     let config_path: PathBuf = shellexpand::tilde("~/.askrc").into_owned().parse()?;
 
     let json = serde_json::to_string_pretty(config)
-        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+        .map_err(|e| format!("Failed to serialize config: {e}"))?;
 
     fs::write(&config_path, json)
-        .map_err(|e| format!("Failed to write config to {:?}: {}", config_path, e))?;
+        .map_err(|e| format!("Failed to write config to {config_path:?}: {e}"))?;
 
     Ok(config_path)
 }
@@ -99,8 +99,7 @@ pub fn add_server(
 
     if config.mcp_servers.contains_key(name) {
         return Err(format!(
-            "Server '{}' already exists. Remove it first with: ask-rs remove {}",
-            name, name
+            "Server '{name}' already exists. Remove it first with: ask-rs remove {name}"
         )
         .into());
     }
@@ -117,7 +116,7 @@ pub fn remove_server(name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> 
     let mut config = load_config()?;
 
     if !config.mcp_servers.contains_key(name) {
-        return Err(format!("Server '{}' not found", name).into());
+        return Err(format!("Server '{name}' not found").into());
     }
 
     config.mcp_servers.remove(name);
