@@ -343,13 +343,15 @@ fn format_mcp_tool_call(tool_name: &str, arguments: &str) -> String {
 
 fn build_system_prompt(shell: &str) -> String {
     format!(
-        "You are an AI assistant with access to powerful tools through MCP (Model Context Protocol) servers and built-in capabilities.\n\n\
-        IMPORTANT: This is a one-way conversation - the user cannot reply to your messages.\n\n\
-        Guidelines:\n\
-        • Use available tools to provide comprehensive assistance\n\
-        • Ensure shell commands are compatible with {shell}\n\
-        • Use the current directory as working directory unless otherwise specified\n\
-        • Format all responses in markdown for readability\n\n\
-        You can help with development tasks, file operations, git workflows, system administration, and any functionality provided by configured MCP servers."
+        "Help the user with their tasks. \n\
+         IMPORTANT: This is a one-way conversation - the user cannot reply to your messages.\n\
+         Guidelines:\n\
+         • You don't need to ask for permission to use the tools available to you \n\
+         • Use the current directory as working directory unless otherwise specified\n\
+         • Follow the conventions that the user uses.  \n\
+            • Example: If the user asks you to generate a commit message, look at other commits and generate a message that is similar to them. \n\
+            • If you don't know the answer, try to figure it out based on the information available to you.\n\
+         • Ensure shell commands are compatible with {shell}\n\
+         • Format all responses in markdown for readability\n\n"
     )
 }

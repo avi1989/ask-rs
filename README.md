@@ -1,4 +1,4 @@
-# ask-rs
+# ask
 
 A powerful AI assistant CLI tool with dynamic MCP (Model Context Protocol) server support. Ask questions and let AI interact with your development tools through configurable MCP servers.
 
@@ -23,8 +23,8 @@ A powerful AI assistant CLI tool with dynamic MCP (Model Context Protocol) serve
 ### Build from Source
 
 ```bash
-git clone https://github.com/avi1989/ask-rs.git
-cd ask-rs
+git clone https://github.com/avi1989/ask.git
+cd ask
 cargo build --release
 ```
 
@@ -33,9 +33,6 @@ cargo build --release
 ```bash
 # Required: OpenAI API key
 export OPENAI_API_KEY="your-api-key-here"
-
-# Optional: Custom model (defaults to gpt-4.1)
-export OPENAI_MODEL="gpt-4"
 ```
 
 ## Quick Start
@@ -43,24 +40,24 @@ export OPENAI_MODEL="gpt-4"
 ### 1. Ask a Question
 
 ```bash
-cargo run -- what files are in the current directory
+ask  what files are in the current directory
 ```
 
 ### 2. Add MCP Servers
 
 ```bash
 # Add git MCP server
-cargo run -- add git uvx --args mcp-server-git
+ask  add git uvx --args mcp-server-git
 
 # Add filesystem server with custom path
-cargo run -- add filesystem uvx \
+ask  add filesystem uvx \
   --args "mcp-server-filesystem,--allowed-directory,${HOME}/projects"
 ```
 
 ### 3. List Configured Servers
 
 ```bash
-cargo run -- list
+ask list
 ```
 
 Output:
@@ -80,10 +77,10 @@ Configured MCP servers:
 
 ```bash
 # Git operations
-cargo run -- show me the pending git changes
+ask show me the pending git changes
 
 # Filesystem operations
-cargo run -- list all TypeScript files in my projects directory
+ask list all TypeScript files in my projects directory
 ```
 
 ## Configuration
@@ -136,14 +133,14 @@ Supports two formats:
 ### Ask Questions (Default)
 
 ```bash
-ask-rs <question>
+ask <question>
 ```
 
 **Examples:**
 ```bash
-ask-rs what is the current git branch
-ask-rs explain the code in main.rs
-ask-rs list all TODO comments in the project
+ask what is the current git branch
+ask explain the code in main.rs
+ask list all TODO comments in the project
 ```
 
 ### Manage MCP Servers
@@ -151,7 +148,7 @@ ask-rs list all TODO comments in the project
 #### List Servers
 
 ```bash
-ask-rs list
+ask list
 ```
 
 Shows all configured MCP servers with their settings.
@@ -159,7 +156,7 @@ Shows all configured MCP servers with their settings.
 #### Add Server
 
 ```bash
-ask-rs add <name> <command> [OPTIONS]
+ask add <name> <command> [OPTIONS]
 ```
 
 **Options:**
@@ -169,13 +166,13 @@ ask-rs add <name> <command> [OPTIONS]
 **Examples:**
 ```bash
 # Simple server
-ask-rs add git uvx --args mcp-server-git
+ask add git uvx --args mcp-server-git
 
 # Server with multiple arguments
-ask-rs add db uvx --args "mcp-server-postgres,--host,localhost,--port,5432"
+ask add db uvx --args "mcp-server-postgres,--host,localhost,--port,5432"
 
 # Server with environment variables
-ask-rs add api node \
+ask add api node \
   --args "/path/to/server.js" \
   --env "API_KEY=secret,LOG_LEVEL=debug"
 ```
@@ -183,12 +180,12 @@ ask-rs add api node \
 #### Remove Server
 
 ```bash
-ask-rs remove <name>
+ask remove <name>
 ```
 
 **Example:**
 ```bash
-ask-rs remove weather
+ask remove weather
 ```
 
 ### Manage Auto-Approvals
@@ -196,7 +193,7 @@ ask-rs remove weather
 #### List Auto-Approved Tools
 
 ```bash
-ask-rs approvals
+ask approvals
 ```
 
 Shows all tools that will execute without prompting.
@@ -204,27 +201,27 @@ Shows all tools that will execute without prompting.
 #### Approve a Tool
 
 ```bash
-ask-rs approve <tool_name>
+ask approve <tool_name>
 ```
 
 **Example:**
 ```bash
 # Approve git_status to auto-execute
-ask-rs approve git_status
+ask approve git_status
 
 # Approve execute_command to auto-execute all shell commands
-ask-rs approve execute_command
+ask approve execute_command
 ```
 
 #### Unapprove a Tool
 
 ```bash
-ask-rs unapprove <tool_name>
+ask unapprove <tool_name>
 ```
 
 **Example:**
 ```bash
-ask-rs unapprove git_status
+ask unapprove git_status
 ```
 
 ## Built-in Tools
@@ -298,13 +295,13 @@ You can also manage auto-approved tools using CLI commands:
 
 ```bash
 # Approve a tool
-ask-rs approve git_status
+ask approve git_status
 
 # List all approved tools
-ask-rs approvals
+ask approvals
 
 # Remove approval
-ask-rs unapprove git_status
+ask unapprove git_status
 ```
 
 This ensures you have full control over what actions the AI performs on your system while maintaining convenience for trusted tools.
@@ -328,16 +325,16 @@ Install via `uvx`:
 
 ```bash
 # Git operations
-ask-rs add git uvx --args mcp-server-git
+ask add git uvx --args mcp-server-git
 
 # Filesystem access
-ask-rs add filesystem uvx --args mcp-server-filesystem
+ask add filesystem uvx --args mcp-server-filesystem
 
 # PostgreSQL database
-ask-rs add postgres uvx --args mcp-server-postgres
+ask add postgres uvx --args mcp-server-postgres
 
 # GitHub API
-ask-rs add github uvx --args mcp-server-github
+ask add github uvx --args mcp-server-github
 ```
 
 ### Custom MCP Servers
@@ -345,8 +342,8 @@ ask-rs add github uvx --args mcp-server-github
 You can add any MCP server that follows the protocol:
 
 ```bash
-ask-rs add myserver node --args "/path/to/my/server.js"
-ask-rs add myserver python --args "/path/to/my/server.py"
+ask add myserver node --args "/path/to/my/server.js"
+ask add myserver python --args "/path/to/my/server.py"
 ```
 
 ## Examples
@@ -355,39 +352,39 @@ ask-rs add myserver python --args "/path/to/my/server.py"
 
 ```bash
 # Check status
-ask-rs what are my pending git changes
+ask what are my pending git changes
 
 # Create commit message
-ask-rs generate a commit message for my staged changes
+ask generate a commit message for my staged changes
 
 # View history
-ask-rs show me the last 5 commits
+ask show me the last 5 commits
 ```
 
 ### Code Analysis
 
 ```bash
 # Understand code
-ask-rs explain what main.rs does
+ask explain what main.rs does
 
 # Find patterns
-ask-rs find all functions that use async/await
+ask find all functions that use async/await
 
 # Generate documentation
-ask-rs write documentation for the config module
+ask write documentation for the config module
 ```
 
 ### Project Management
 
 ```bash
 # Find TODOs
-ask-rs list all TODO comments with their file locations
+ask list all TODO comments with their file locations
 
 # Analyze structure
-ask-rs describe the project structure
+ask describe the project structure
 
 # Dependencies
-ask-rs what dependencies does this project use
+ask what dependencies does this project use
 ```
 
 ## Configuration Files
@@ -404,23 +401,6 @@ See `.askrc.example` for a complete configuration example.
 
 ## Development
 
-### Project Structure
-
-```
-ask-rs/
-├── src/
-│   ├── main.rs          # CLI entry point and command handlers
-│   ├── llms.rs          # OpenAI integration and tool execution
-│   ├── config.rs        # Configuration loading and management
-│   ├── shell.rs         # Shell detection utilities
-│   └── tools/
-│       ├── mod.rs       # Built-in tools (file ops, commands)
-│       └── mcp.rs       # Generic MCP server integration
-├── Cargo.toml
-├── README.md
-└── .askrc.example
-```
-
 ### Adding Built-in Tools
 
 Edit `src/tools/mod.rs` to add new built-in tools that don't require MCP servers.
@@ -429,13 +409,13 @@ Edit `src/tools/mod.rs` to add new built-in tools that don't require MCP servers
 
 ```bash
 # Build
-cargo build
+ask build
 
 # Run tests
-cargo test
+ask test
 
 # Check
-cargo check
+ask check
 ```
 
 ## Troubleshooting
@@ -445,7 +425,7 @@ cargo check
 Create `~/.askrc` or use the `add` command:
 
 ```bash
-ask-rs add git uvx --args mcp-server-git
+ask add git uvx --args mcp-server-git
 ```
 
 ### "Failed to connect to MCP server"
