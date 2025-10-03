@@ -1,4 +1,5 @@
 use crate::config;
+use crate::config::AskRcConfig;
 use crate::shell::detect_shell_kind;
 use crate::tools::mcp::{
     McpRegistry, execute_mcp_tool_call, load_cached_tools, populate_cache_if_needed,
@@ -19,7 +20,6 @@ use std::env;
 use std::io::Write;
 use std::sync::Mutex;
 use tokio::sync::Mutex as AsyncMutex;
-use crate::config::AskRcConfig;
 
 /// Track tools that have been auto-approved with "A" (accept all) option
 static AUTO_APPROVED_TOOLS: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
@@ -32,14 +32,16 @@ fn get_openai_client(base_url: &Option<String>, verbose: &bool) -> Client<OpenAI
     }
 
     match base_url {
-        Some(url) => Client::with_config(OpenAIConfig::new().with_api_key(api_key).with_api_base(url)),
-        None => Client::with_config(OpenAIConfig::new().with_api_key(api_key))
+        Some(url) => {
+            Client::with_config(OpenAIConfig::new().with_api_key(api_key).with_api_base(url))
+        }
+        None => Client::with_config(OpenAIConfig::new().with_api_key(api_key)),
     }
 }
 
 pub async fn ask_question(
     question: &str,
-    model: &str,
+    model: Option<String>,
     verbose: bool,
 ) -> Result<String, Box<anyhow::Error>> {
     let config = config::load_config().unwrap_or_else(|e| {
@@ -52,6 +54,15 @@ pub async fn ask_question(
             model: None,
         }
     });
+
+    let selected_model = model
+        .unwrap_or_else(|| {
+            config
+                .model
+                .as_ref()
+                .map_or_else(|| "gpt-4.1-mini".to_string(), |m| m.clone())
+        })
+        .to_string();
 
     // Initialize AUTO_APPROVED_TOOLS from config
     {
@@ -91,8 +102,12 @@ pub async fn ask_question(
         .map(ChatCompletionRequestMessage::User)
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
+    if verbose {
+        println!("Using model: {selected_model}");
+    }
+
     let mut req = CreateChatCompletionRequestArgs::default()
-        .model(model.to_string())
+        .model(selected_model.to_string())
         .messages(vec![system_msg, user_msg])
         .tools(tools)
         .tool_choice(ChatCompletionToolChoiceOption::Auto)
@@ -351,6 +366,7 @@ fn format_mcp_tool_call(tool_name: &str, arguments: &str) -> String {
 }
 
 fn build_system_prompt(shell: &str) -> String {
+    let date = chrono::offset::Local::now().format("%Y-%m-%d").to_string();
     format!(
         "Help the user with their tasks. \n\
          IMPORTANT: This is a one-way conversation - the user cannot reply to your messages.\n\
@@ -361,6 +377,7 @@ fn build_system_prompt(shell: &str) -> String {
             • Example: If the user asks you to generate a commit message, look at other commits and generate a message that is similar to them. \n\
             • If you don't know the answer, try to figure it out based on the information available to you.\n\
          • Ensure shell commands are compatible with {shell}\n\
+         • Today's date is {date}.\n\
          • Format all responses in markdown for readability\n\n"
     )
 }

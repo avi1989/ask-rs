@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AskRcConfig {
     #[serde(rename = "mcpServers")]
     pub mcp_servers: HashMap<String, McpServerDefinition>,
@@ -16,10 +16,10 @@ pub struct AskRcConfig {
     #[serde(rename = "autoApprovedTools", default)]
     pub auto_approved_tools: Vec<String>,
 
-    #[serde(rename="baseUrl", default)]
+    #[serde(rename = "baseUrl", default)]
     pub base_url: Option<String>,
 
-    #[serde(rename="defaultModel", default)]
+    #[serde(rename = "defaultModel", default)]
     pub model: Option<String>,
 }
 
@@ -197,4 +197,3 @@ fn expand_env_vars(input: &str) -> String {
 
     result
 }
-

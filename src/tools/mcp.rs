@@ -102,10 +102,10 @@ impl McpRegistry {
                     self.services.insert(server_name.to_string(), service);
 
                     // Update cache with tools from this server
-                    if let Some(service) = self.services.get(server_name) {
-                        if let Ok(tools) = get_mcp_tools(service, config) {
-                            update_cache_for_server(server_name, config, tools);
-                        }
+                    if let Some(service) = self.services.get(server_name)
+                        && let Ok(tools) = get_mcp_tools(service, config)
+                    {
+                        update_cache_for_server(server_name, config, tools);
                     }
 
                     Ok(())
@@ -253,10 +253,10 @@ fn get_cache_path() -> PathBuf {
 
 fn load_cache() -> ToolCache {
     let cache_path = get_cache_path();
-    if let Ok(content) = fs::read_to_string(&cache_path) {
-        if let Ok(cache) = serde_json::from_str(&content) {
-            return cache;
-        }
+    if let Ok(content) = fs::read_to_string(&cache_path)
+        && let Ok(cache) = serde_json::from_str(&content)
+    {
+        return cache;
     }
     ToolCache {
         entries: HashMap::new(),
@@ -348,19 +348,19 @@ pub fn load_cached_tools(registry: &McpRegistry, verbose: bool) -> Vec<ChatCompl
     for (name, config) in registry.servers() {
         let config_hash = config.hash();
 
-        if let Some(entry) = cache.entries.get(name) {
-            if entry.config_hash == config_hash {
-                if verbose {
-                    eprintln!(
-                        "Loaded {} tools from cache for '{}'",
-                        entry.tools.len(),
-                        name
-                    );
-                }
-                all_tools.extend(entry.tools.clone());
-                loaded_count += 1;
-                continue;
+        if let Some(entry) = cache.entries.get(name)
+            && entry.config_hash == config_hash
+        {
+            if verbose {
+                eprintln!(
+                    "Loaded {} tools from cache for '{}'",
+                    entry.tools.len(),
+                    name
+                );
             }
+            all_tools.extend(entry.tools.clone());
+            loaded_count += 1;
+            continue;
         }
 
         if verbose {

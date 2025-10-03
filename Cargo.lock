@@ -97,6 +97,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-openai",
+ "chrono",
  "clap",
  "futures",
  "markterm",

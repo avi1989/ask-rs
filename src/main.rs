@@ -38,12 +38,12 @@ enum Commands {
 
     /// Set the OpenAI compatible URL for the LLM
     SetBaseUrl {
-        url: String
+        url: String,
     },
 
     SetDefaultModel {
-        model: String
-    }
+        model: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -128,24 +128,22 @@ async fn main() {
             use std::io::Write;
             std::io::stdout().flush().unwrap();
             let _ = config::set_base_url(&url);
-            return
+            return;
         }
         Some(Commands::SetDefaultModel { model }) => {
             println!("Settings default model to {model}");
             let _ = config::set_default_model(&model);
-            return
+            return;
         }
         None => {
             if cli.question.is_empty() {
-                eprintln!(
-                    "Error: Please provide a question or use a subcommand (init, mcp)"
-                );
+                eprintln!("Error: Please provide a question or use a subcommand (init, mcp)");
                 std::process::exit(1);
             }
 
-            let model = cli.model.unwrap_or("gpt-4.1-mini".to_string());
+            let model = cli.model;
             let question = cli.question.join(" ");
-            let answer = llms::ask_question(&question, &model, cli.verbose)
+            let answer = llms::ask_question(&question, model, cli.verbose)
                 .await
                 .unwrap();
             markterm::render_text_to_stdout(&answer, None, markterm::ColorChoice::Auto).unwrap();
