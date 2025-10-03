@@ -14,18 +14,27 @@ use async_openai::types::{
 };
 use async_openai::{Client, config::OpenAIConfig};
 use once_cell::sync::Lazy;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::io::Write;
 use std::sync::Mutex;
 use tokio::sync::Mutex as AsyncMutex;
+use crate::config::AskRcConfig;
 
 /// Track tools that have been auto-approved with "A" (accept all) option
 static AUTO_APPROVED_TOOLS: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 
-fn get_openai_client() -> Client<OpenAIConfig> {
+fn get_openai_client(base_url: &Option<String>, verbose: &bool) -> Client<OpenAIConfig> {
     let api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY is not set");
-    Client::with_config(OpenAIConfig::new().with_api_key(api_key))
+
+    if *verbose {
+        println!("Using base url: {:?}", base_url);
+    }
+
+    match base_url {
+        Some(url) => Client::with_config(OpenAIConfig::new().with_api_key(api_key).with_api_base(url)),
+        None => Client::with_config(OpenAIConfig::new().with_api_key(api_key))
+    }
 }
 
 pub async fn ask_question(
@@ -33,29 +42,29 @@ pub async fn ask_question(
     model: &str,
     verbose: bool,
 ) -> Result<String, Box<anyhow::Error>> {
-    let client = get_openai_client();
+    let config = config::load_config().unwrap_or_else(|e| {
+        eprintln!("Warning: Failed to load MCP config: {e}");
+        eprintln!("Continuing without MCP tools. Create ~/.askrc to enable MCP servers.");
+        AskRcConfig {
+            base_url: None,
+            auto_approved_tools: Vec::new(),
+            mcp_servers: HashMap::new(),
+            model: None,
+        }
+    });
+
+    // Initialize AUTO_APPROVED_TOOLS from config
+    {
+        let mut auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap();
+        for tool in &config.auto_approved_tools {
+            auto_approved.insert(tool.clone());
+        }
+    }
+
+    let client = get_openai_client(&config.base_url, &verbose);
     let shell = detect_shell_kind();
 
-    let mut registry = match config::load_config() {
-        Ok(cfg) => {
-            {
-                let mut auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap();
-                for tool in &cfg.auto_approved_tools {
-                    auto_approved.insert(tool.clone());
-                }
-            }
-
-            let servers = config::config_to_servers(&cfg);
-            McpRegistry::from_servers(servers)
-        }
-        Err(e) => {
-            if verbose {
-                eprintln!("Warning: Failed to load MCP config: {e}");
-                eprintln!("Continuing without MCP tools. Create ~/.askrc to enable MCP servers.");
-            }
-            McpRegistry::new()
-        }
-    };
+    let mut registry = McpRegistry::from_servers(config::config_to_servers(&config));
 
     // Populate cache if needed (first run only)
     if let Err(e) = populate_cache_if_needed(&mut registry, verbose).await {

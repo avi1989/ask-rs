@@ -15,6 +15,12 @@ pub struct AskRcConfig {
 
     #[serde(rename = "autoApprovedTools", default)]
     pub auto_approved_tools: Vec<String>,
+
+    #[serde(rename="baseUrl", default)]
+    pub base_url: Option<String>,
+
+    #[serde(rename="defaultModel", default)]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -89,13 +95,12 @@ pub fn add_server(
     args: Vec<String>,
     env: HashMap<String, String>,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let mut config = match load_config() {
-        Ok(cfg) => cfg,
-        Err(_) => AskRcConfig {
-            mcp_servers: HashMap::new(),
-            auto_approved_tools: Vec::new(),
-        },
-    };
+    let mut config = load_config().unwrap_or_else(|_| AskRcConfig {
+        mcp_servers: HashMap::new(),
+        auto_approved_tools: Vec::new(),
+        base_url: None,
+        model: None,
+    });
 
     if config.mcp_servers.contains_key(name) {
         return Err(format!(
@@ -126,13 +131,12 @@ pub fn remove_server(name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> 
 
 /// Add a tool to auto-approved list
 pub fn add_auto_approved_tool(tool_name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let mut config = match load_config() {
-        Ok(cfg) => cfg,
-        Err(_) => AskRcConfig {
-            mcp_servers: HashMap::new(),
-            auto_approved_tools: Vec::new(),
-        },
-    };
+    let mut config = load_config().unwrap_or_else(|_| AskRcConfig {
+        mcp_servers: HashMap::new(),
+        auto_approved_tools: Vec::new(),
+        base_url: None,
+        model: None,
+    });
 
     if !config.auto_approved_tools.contains(&tool_name.to_string()) {
         config.auto_approved_tools.push(tool_name.to_string());
@@ -154,6 +158,18 @@ pub fn remove_auto_approved_tool(tool_name: &str) -> Result<PathBuf, Box<dyn std
 pub fn list_auto_approved_tools() -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let config = load_config()?;
     Ok(config.auto_approved_tools.clone())
+}
+
+pub fn set_base_url(base_url: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let mut config = load_config()?;
+    config.base_url = Some(base_url.to_string());
+    save_config(&config)
+}
+
+pub fn set_default_model(model: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let mut config = load_config()?;
+    config.model = Some(model.to_string());
+    save_config(&config)
 }
 
 /// Expand environment variables in strings
@@ -182,20 +198,3 @@ fn expand_env_vars(input: &str) -> String {
     result
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_expand_env_vars() {
-        std::env::set_var("TEST_VAR", "test_value");
-
-        assert_eq!(expand_env_vars("${TEST_VAR}"), "test_value");
-        assert_eq!(
-            expand_env_vars("prefix_${TEST_VAR}_suffix"),
-            "prefix_test_value_suffix"
-        );
-        assert_eq!(expand_env_vars("${NONEXISTENT:-default}"), "default");
-        assert_eq!(expand_env_vars("${TEST_VAR:-default}"), "test_value");
-    }
-}

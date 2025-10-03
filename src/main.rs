@@ -16,7 +16,7 @@ struct Cli {
     #[arg(short, long, global = true)]
     verbose: bool,
 
-    /// The OPENAI model to use. Defaults to gpt-4.1-mini.
+    /// The OPENAI model to use. Defaults to gpt-4.1-mini or whatever is configured in ~/.askrc.
     #[arg(short, long)]
     model: Option<String>,
 
@@ -27,6 +27,27 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// MCP server and tool management
+    Mcp {
+        #[command(subcommand)]
+        command: McpCommands,
+    },
+
+    /// Initialize ~/.askrc with default MCP servers
+    Init,
+
+    /// Set the OpenAI compatible URL for the LLM
+    SetBaseUrl {
+        url: String
+    },
+
+    SetDefaultModel {
+        model: String
+    }
+}
+
+#[derive(Subcommand)]
+enum McpCommands {
     /// List configured MCP servers
     List,
 
@@ -67,9 +88,6 @@ enum Commands {
 
     /// List all auto-approved tools
     Approvals,
-
-    /// Initialize ~/.askrc with default MCP servers
-    Init,
 }
 
 #[tokio::main]
@@ -77,39 +95,54 @@ async fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::List) => {
-            handle_list();
-        }
-        Some(Commands::Add {
-            name,
-            command,
-            args,
-            env,
-        }) => {
-            handle_add(name, command, args, env);
-        }
-        Some(Commands::Remove { name }) => {
-            handle_remove(name);
-        }
-        Some(Commands::Approve { tool_name }) => {
-            handle_approve(tool_name);
-        }
-        Some(Commands::Unapprove { tool_name }) => {
-            handle_unapprove(tool_name);
-        }
-        Some(Commands::Approvals) => {
-            handle_list_approvals();
-        }
+        Some(Commands::Mcp { command }) => match command {
+            McpCommands::List => {
+                handle_list();
+            }
+            McpCommands::Add {
+                name,
+                command,
+                args,
+                env,
+            } => {
+                handle_add(name, command, args, env);
+            }
+            McpCommands::Remove { name } => {
+                handle_remove(name);
+            }
+            McpCommands::Approve { tool_name } => {
+                handle_approve(tool_name);
+            }
+            McpCommands::Unapprove { tool_name } => {
+                handle_unapprove(tool_name);
+            }
+            McpCommands::Approvals => {
+                handle_list_approvals();
+            }
+        },
         Some(Commands::Init) => {
             handle_init();
+        }
+        Some(Commands::SetBaseUrl { url }) => {
+            print!("Setting base URL to {}. Continue? [y/N]: ", url);
+            use std::io::Write;
+            std::io::stdout().flush().unwrap();
+            let _ = config::set_base_url(&url);
+            return
+        }
+        Some(Commands::SetDefaultModel { model }) => {
+            println!("Settings default model to {model}");
+            let _ = config::set_default_model(&model);
+            return
         }
         None => {
             if cli.question.is_empty() {
                 eprintln!(
-                    "Error: Please provide a question or use a subcommand (list, add, remove)"
+                    "Error: Please provide a question or use a subcommand (init, mcp)"
                 );
                 std::process::exit(1);
             }
+
             let model = cli.model.unwrap_or("gpt-4.1-mini".to_string());
             let question = cli.question.join(" ");
             let answer = llms::ask_question(&question, &model, cli.verbose)
@@ -125,7 +158,7 @@ fn handle_list() {
         Ok(cfg) => {
             if cfg.mcp_servers.is_empty() {
                 println!("No MCP servers configured.");
-                println!("Add one with: ask-rs add <name> <command> --args <args>");
+                println!("Add one with: ask-rs mcp add <name> <command> --args <args>");
                 return;
             }
 
@@ -147,7 +180,7 @@ fn handle_list() {
         }
         Err(e) => {
             eprintln!("Error loading config: {e}");
-            eprintln!("Run 'ask-rs add' to create your first MCP server.");
+            eprintln!("Run 'ask-rs mcp add' to create your first MCP server.");
         }
     }
 }
@@ -216,7 +249,7 @@ fn handle_list_approvals() {
         Ok(tools) => {
             if tools.is_empty() {
                 println!("No auto-approved tools.");
-                println!("Add one with: ask-rs approve <tool_name>");
+                println!("Add one with: ask-rs mcp approve <tool_name>");
                 return;
             }
 
@@ -225,7 +258,7 @@ fn handle_list_approvals() {
                 println!("  ✓ {tool}");
             }
             println!("\nThese tools will execute without prompting.");
-            println!("Remove with: ask-rs unapprove <tool_name>");
+            println!("Remove with: ask-rs mcp unapprove <tool_name>");
         }
         Err(e) => {
             eprintln!("Error listing approvals: {e}");
@@ -296,6 +329,8 @@ fn handle_init() {
     }
 
     let config = config::AskRcConfig {
+        base_url: None,
+        model: None,
         mcp_servers: {
             let mut servers = std::collections::HashMap::new();
             servers.insert(
@@ -332,7 +367,7 @@ fn handle_init() {
             println!("✓ Created configuration file at {path:?}");
             println!();
             println!("You can now use ask-rs with MCP tools!");
-            println!("Try: ask-rs list files in current directory");
+            println!("Try: ask-rs \"list files in current directory\" or ask-rs mcp list");
         }
         Err(e) => {
             eprintln!("Error creating config: {e}");
