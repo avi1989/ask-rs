@@ -24,8 +24,23 @@ use tokio::sync::Mutex as AsyncMutex;
 /// Track tools that have been auto-approved with "A" (accept all) option
 static AUTO_APPROVED_TOOLS: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 
+fn get_api_key(base_url: &Option<String>) -> String {
+    if let Ok(key) = env::var("ASK_API_KEY") {
+        return key;
+    }
+
+    if let Some(url) = base_url
+        && url.contains("openrouter")
+        && let Ok(key) = env::var("OPENROUTER_API_KEY")
+    {
+        return key;
+    }
+
+    env::var("OPENAI_API_KEY")
+        .expect("API key not found. Please set ASK_API_KEY, OPENROUTER_API_KEY (for OpenRouter), or OPENAI_API_KEY.")
+}
 fn get_openai_client(base_url: &Option<String>, verbose: &bool) -> Client<OpenAIConfig> {
-    let api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY is not set");
+    let api_key = get_api_key(base_url);
 
     if *verbose {
         println!("Using base url: {:?}", base_url);
@@ -244,7 +259,7 @@ fn execute_tool_call(
             })
         });
 
-        if let Some((server_name, server_config)) = server_info {
+        if let Some((ref server_name, server_config)) = server_info {
             let is_auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap().contains(&name);
 
             let should_execute = if is_auto_approved {
@@ -289,7 +304,7 @@ fn execute_tool_call(
                 let needs_init = tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current().block_on(async {
                         let reg = registry.lock().await;
-                        reg.get_service(&server_name).is_none()
+                        reg.get_service(server_name).is_none()
                     })
                 });
 
@@ -301,13 +316,13 @@ fn execute_tool_call(
                     let init_result = tokio::task::block_in_place(|| {
                         tokio::runtime::Handle::current().block_on(async {
                             let mut reg = registry.lock().await;
-                            reg.initialize_service(&server_name).await
+                            reg.initialize_service(server_name).await
                         })
                     });
 
                     if let Err(e) = init_result {
                         result =
-                            format!("Error: Failed to initialize MCP server '{server_name}': {e}");
+                            format!("Error: Failed to initialize MCP server '{server_name}': {e}",);
                         return (id, result);
                     }
                 }
@@ -315,7 +330,7 @@ fn execute_tool_call(
                 let service_result = tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current().block_on(async {
                         let reg = registry.lock().await;
-                        reg.get_service(&server_name).is_some()
+                        reg.get_service(server_name).is_some()
                     })
                 });
 
@@ -324,7 +339,7 @@ fn execute_tool_call(
                         tokio::runtime::Handle::current().block_on(async { registry.lock().await })
                     });
 
-                    if let Some(service) = reg.get_service(&server_name) {
+                    if let Some(service) = reg.get_service(server_name) {
                         match execute_mcp_tool_call(service, &server_config, &name, &arguments) {
                             Ok(response) => {
                                 result = response;
