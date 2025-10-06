@@ -24,44 +24,88 @@ use tokio::sync::Mutex as AsyncMutex;
 /// Track tools that have been auto-approved with "A" (accept all) option
 static AUTO_APPROVED_TOOLS: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 
-fn get_api_key(base_url: &Option<String>) -> String {
+fn get_api_key(base_url: &Option<String>, verbose: bool) -> Result<String, anyhow::Error> {
+    if verbose {
+        println!("Checking for API keys...");
+        println!("  Base URL: {:?}", base_url);
+    }
+
     if let Ok(key) = env::var("ASK_API_KEY") {
-        return key;
+        if verbose {
+            println!("  ✓ Found ASK_API_KEY");
+        }
+        return Ok(key);
+    } else if verbose {
+        println!("  ✗ ASK_API_KEY not found");
     }
 
-    if let Some(url) = base_url
-        && url.contains("openrouter")
-        && let Ok(key) = env::var("OPENROUTER_API_KEY")
-    {
-        return key;
+    if let Some(url) = base_url {
+        if url.contains("openrouter") {
+            if verbose {
+                println!("  Detected OpenRouter URL, checking OPENROUTER_API_KEY...");
+            }
+            if let Ok(key) = env::var("OPENROUTER_API_KEY") {
+                if verbose {
+                    println!("  ✓ Found OPENROUTER_API_KEY");
+                }
+                return Ok(key);
+            } else if verbose {
+                println!("  ✗ OPENROUTER_API_KEY not found");
+            }
+        }
     }
 
-    env::var("OPENAI_API_KEY")
-        .expect("API key not found. Please set ASK_API_KEY, OPENROUTER_API_KEY (for OpenRouter), or OPENAI_API_KEY.")
+    if let Ok(key) = env::var("OPENAI_API_KEY") {
+        if verbose {
+            println!("  ✓ Found OPENAI_API_KEY");
+        }
+        return Ok(key);
+    } else if verbose {
+        println!("  ✗ OPENAI_API_KEY not found");
+    }
+
+    let error_msg = match base_url {
+        Some(url) if url.contains("openrouter") => {
+            "No API key found. Please set one of the following environment variables:\n  - ASK_API_KEY (universal)\n  - OPENROUTER_API_KEY (for OpenRouter)\n  - OPENAI_API_KEY (for OpenAI)"
+        }
+        _ => {
+            "No API key found. Please set one of the following environment variables:\n  - ASK_API_KEY (universal)\n  - OPENAI_API_KEY (for OpenAI)\n  - OPENROUTER_API_KEY (if using OpenRouter)"
+        }
+    };
+    
+    Err(anyhow::anyhow!(error_msg))
 }
-fn get_openai_client(base_url: &Option<String>, verbose: &bool) -> Client<OpenAIConfig> {
-    let api_key = get_api_key(base_url);
+fn get_openai_client(base_url: &Option<String>, verbose: &bool) -> Result<Client<OpenAIConfig>, anyhow::Error> {
+    let api_key = get_api_key(base_url, *verbose)?;
 
     if *verbose {
-        println!("Using base url: {:?}", base_url);
+        println!("Using base URL: {:?}", base_url);
+        println!("Successfully initialized OpenAI client");
     }
 
-    match base_url {
+    let client = match base_url {
         Some(url) => {
             Client::with_config(OpenAIConfig::new().with_api_key(api_key).with_api_base(url))
         }
         None => Client::with_config(OpenAIConfig::new().with_api_key(api_key)),
-    }
+    };
+
+    Ok(client)
 }
 
 pub async fn ask_question(
     question: &str,
     model: Option<String>,
     verbose: bool,
-) -> Result<String, Box<anyhow::Error>> {
+) -> Result<String, anyhow::Error> {
     let config = config::load_config().unwrap_or_else(|e| {
-        eprintln!("Warning: Failed to load MCP config: {e}");
-        eprintln!("Continuing without MCP tools. Create ~/.askrc to enable MCP servers.");
+        if verbose {
+            println!("Failed to load MCP config: {e}");
+            println!("Continuing without MCP tools. Create ~/.askrc to enable MCP servers.");
+        } else {
+            eprintln!("Warning: Failed to load MCP config: {e}");
+            eprintln!("Continuing without MCP tools. Create ~/.askrc to enable MCP servers.");
+        }
         AskRcConfig {
             base_url: None,
             auto_approved_tools: Vec::new(),
@@ -70,7 +114,16 @@ pub async fn ask_question(
         }
     });
 
+    if verbose {
+        println!("Configuration loaded successfully:");
+        println!("  Base URL: {:?}", config.base_url);
+        println!("  Default model: {:?}", config.model);
+        println!("  MCP servers: {}", config.mcp_servers.len());
+        println!("  Auto-approved tools: {}", config.auto_approved_tools.len());
+    }
+
     let selected_model = model
+        .clone()
         .unwrap_or_else(|| {
             config
                 .model
@@ -78,6 +131,18 @@ pub async fn ask_question(
                 .map_or_else(|| "gpt-4.1-mini".to_string(), |m| m.clone())
         })
         .to_string();
+
+    if verbose {
+        println!("Model selection:");
+        if let Some(ref provided_model) = model {
+            println!("  Using provided model: {}", provided_model);
+        } else if let Some(ref config_model) = config.model {
+            println!("  Using config default model: {}", config_model);
+        } else {
+            println!("  Using fallback model: gpt-4.1-mini");
+        }
+        println!("  Final model: {}", selected_model);
+    }
 
     // Initialize AUTO_APPROVED_TOOLS from config
     {
@@ -87,7 +152,7 @@ pub async fn ask_question(
         }
     }
 
-    let client = get_openai_client(&config.base_url, &verbose);
+    let client = get_openai_client(&config.base_url, &verbose)?;
     let shell = detect_shell_kind();
 
     let mut registry = McpRegistry::from_servers(config::config_to_servers(&config));
@@ -129,13 +194,39 @@ pub async fn ask_question(
         .build()
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
+    if verbose {
+        println!("Request details:");
+        println!("  Model: {}", selected_model);
+        println!("  Messages: {} message(s)", req.messages.len());
+        println!("  Tools: {} tool(s)", req.tools.as_ref().map_or(0, |t| t.len()));
+    }
+
     // Wrap registry in async Mutex for interior mutability (safe across await points)
     let registry = AsyncMutex::new(registry);
 
     for _ in 0..MAX_TURNS {
         let response = match client.chat().create(req.clone()).await {
             Ok(r) => r,
-            Err(e) => return Err(Box::from(anyhow::anyhow!(e.to_string()))),
+            Err(e) => {
+                let error_str = e.to_string();
+                if verbose {
+                    eprintln!("OpenAI API Error: {}", error_str);
+                }
+                
+                // Check if it's a model-related error and provide helpful feedback
+                if error_str.contains("400") || error_str.contains("invalid type: integer") {
+                    return Err(anyhow::anyhow!(
+                        "API request failed with 400 error. This might be due to:\n\
+                         1. Invalid model name: '{}'\n\
+                         2. Request format issues\n\
+                         3. API rate limits or permissions\n\n\
+                         Original error: {}", 
+                        selected_model, error_str
+                    ));
+                }
+                
+                return Err(anyhow::anyhow!("OpenAI API Error: {}", error_str));
+            }
         };
 
         let (should_continue, result) = match response.choices[0].finish_reason {
@@ -177,15 +268,15 @@ pub async fn ask_question(
         if !should_continue {
             return match result {
                 Some(r) => Ok(r),
-                None => Err(Box::from(anyhow::anyhow!("Response too long"))),
+                None => Err(anyhow::anyhow!("Response too long")),
             };
         } else {
             continue;
         }
     }
-    Err(Box::from(anyhow::anyhow!(format!(
+    Err(anyhow::anyhow!(format!(
         "No response after {MAX_TURNS} attempts"
-    ))))
+    )))
 }
 
 fn execute_tool_call(

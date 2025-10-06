@@ -143,10 +143,15 @@ async fn main() {
 
             let model = cli.model;
             let question = cli.question.join(" ");
-            let answer = llms::ask_question(&question, model, cli.verbose)
-                .await
-                .unwrap();
-            markterm::render_text_to_stdout(&answer, None, markterm::ColorChoice::Auto).unwrap();
+            match llms::ask_question(&question, model, cli.verbose).await {
+                Ok(answer) => {
+                    markterm::render_text_to_stdout(&answer, None, markterm::ColorChoice::Auto).unwrap();
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
     }
 }
