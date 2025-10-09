@@ -11,6 +11,7 @@ A powerful AI assistant CLI tool with dynamic MCP (Model Context Protocol) serve
 - ⚙️ **Easy Configuration** - Manage MCP servers via CLI commands
 - 🌍 **Environment Variables** - Support for `${VAR}` and `${VAR:-default}` expansion
 - 📦 **Zero Hardcoding** - Add new MCP servers without touching code
+- 💾 **Session Support** - Save, load, and continue past conversations as named sessions for uninterrupted workflow
 
 ## Installation
 
@@ -106,7 +107,7 @@ ask list all TypeScript files in my projects directory
 
 ### Configuration File
 
-MCP servers are configured in `~/.askrc` using Claude Code's `.mcp.json` format:
+MCP servers are configured in `~/.ask/config` using Claude Code's `.mcp.json` format:
 
 ```json
 {
@@ -140,6 +141,11 @@ MCP servers are configured in `~/.askrc` using Claude Code's `.mcp.json` format:
 ```
 
 The `autoApprovedTools` array contains tools that will execute without prompting.
+
+Config and tool cache locations:
+- Config: `~/.ask/config`
+- Tool cache: `~/.ask/tools_cache.json`
+- Sessions: `~/.ask/sessions/<name>`
 
 ### Environment Variable Expansion
 
@@ -243,6 +249,26 @@ ask unapprove <tool_name>
 ask unapprove git_status
 ```
 
+### Sessions
+
+You can now save and continue AI conversations as sessions for continuous context. Sessions are stored as files in `~/.ask/sessions/<name>` and can be saved or resumed from the CLI.
+
+#### Continue a Session
+
+```bash
+ask --session my-discussion what did we talk about earlier?
+```
+
+#### Save Last Session
+
+After an important interaction, preserve the conversation:
+```bash
+ask save-last-session --name project-discussion
+```
+
+- By default, the last session is always available as the session "last".
+- Any session can be loaded and continued (`--session <name>`).
+
 ## Built-in Tools
 
 The following tools are available by default:
@@ -306,7 +332,7 @@ Arguments:
 [Auto-approved]
 ```
 
-**Note:** Auto-approvals are **persisted to `~/.askrc`** and will be remembered across sessions.
+**Note:** Auto-approvals are **persisted to `~/.ask/config`** and will be remembered across sessions.
 
 ### Managing Auto-Approvals via CLI
 
@@ -350,7 +376,7 @@ ask add git uvx --args mcp-server-git
 ask add filesystem uvx --args mcp-server-filesystem
 
 # PostgreSQL database
-ask add postgres uvx --args mcp-server-postgres
+dash add postgres uvx --args mcp-server-postgres
 
 # GitHub API
 ask add github uvx --args mcp-server-github
@@ -410,11 +436,13 @@ ask what dependencies does this project use
 
 ### File Locations
 
-The configuration file is located at `~/.askrc`
+- Config: `~/.ask/config`
+- Tool cache: `~/.ask/tools_cache.json`
+- Sessions: `~/.ask/sessions/<name>`
 
 ### Example Configuration
 
-See `.askrc.example` for a complete configuration example.
+See `.askrc.example`/the documentation above for a complete configuration example.
 
 ## Development
 
@@ -439,7 +467,7 @@ ask check
 
 ### "No configuration file found"
 
-Create `~/.askrc` or use the `add` command:
+Create `~/.ask/config` or use the `add` command:
 
 ```bash
 ask add git uvx --args mcp-server-git

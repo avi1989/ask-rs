@@ -76,7 +76,7 @@ pub fn save_config(config: &AskConfig) -> Result<PathBuf, Box<dyn std::error::Er
     let config_path: PathBuf = shellexpand::tilde("~/.ask/config").into_owned().parse()?;
     let config_dir = config_path.parent().unwrap();
     if !config_dir.exists() {
-        fs::create_dir_all(&config_dir)
+        fs::create_dir_all(config_dir)
             .map_err(|e| format!("Failed to create config directory {config_dir:?}: {e}"))?;
     }
 

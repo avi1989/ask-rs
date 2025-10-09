@@ -1,7 +1,9 @@
 use clap::{Parser, Subcommand};
+use crate::sessions::get_session;
 
 mod config;
 mod llms;
+mod sessions;
 mod shell;
 mod tools;
 
@@ -15,6 +17,10 @@ struct Cli {
     /// Enable verbose output
     #[arg(short, long, global = true)]
     verbose: bool,
+
+    /// Name of the session to use. If provided, this allows you to continue a conversation.
+    #[arg(short, long)]
+    session: Option<String>,
 
     /// The OPENAI model to use. Defaults to gpt-4.1-mini or whatever is configured in the config file.
     #[arg(short, long)]
@@ -41,9 +47,15 @@ enum Commands {
         url: String,
     },
 
+    /// Set the default model to use for the LLM.
     SetDefaultModel {
         model: String,
     },
+
+    /// Saves the last chat as a named session
+    SaveLastSession {
+        name: String,
+    }
 }
 
 #[derive(Subcommand)]
@@ -135,6 +147,18 @@ async fn main() {
             let _ = config::set_default_model(&model);
             return;
         }
+        Some(Commands::SaveLastSession { name }) => {
+            match get_session("last") {
+                Some(session) => {
+                    let _ = sessions::save_session(&name, &session, None);
+                    println!("Saved session as {name}");
+                }
+                None => {
+                    eprintln!("Error: No session to save");
+                    std::process::exit(1);
+                }
+            }
+        }
         None => {
             if cli.question.is_empty() {
                 eprintln!("Error: Please provide a question or use a subcommand (init, mcp)");
@@ -143,9 +167,11 @@ async fn main() {
 
             let model = cli.model;
             let question = cli.question.join(" ");
-            match llms::ask_question(&question, model, cli.verbose).await {
+            let session = cli.session;
+            match llms::ask_question(&question, model, session, cli.verbose).await {
                 Ok(answer) => {
-                    markterm::render_text_to_stdout(&answer, None, markterm::ColorChoice::Auto).unwrap();
+                    markterm::render_text_to_stdout(&answer, None, markterm::ColorChoice::Auto)
+                        .unwrap();
                 }
                 Err(e) => {
                     eprintln!("Error: {}", e);
@@ -297,9 +323,11 @@ fn handle_init() {
         std::process::exit(1);
     }
 
-    let config_path: std::path::PathBuf =
-        shellexpand::tilde("~/.ask/config").into_owned().parse().unwrap();
-    
+    let config_path: std::path::PathBuf = shellexpand::tilde("~/.ask/config")
+        .into_owned()
+        .parse()
+        .unwrap();
+
     if config_path.exists() {
         eprintln!("Error: ~/.ask/config already exists.");
         eprintln!("Remove it first if you want to reinitialize.");

@@ -27,7 +27,9 @@ impl McpRegistry {
     pub fn from_servers(servers: Vec<(String, McpServerConfig)>) -> Self {
         for (name, _) in &servers {
             if name.contains(".") {
-                eprintln!("Warning: MCP server name '{name}' contains a '.' which is not allowed. Please rename it.");
+                eprintln!(
+                    "Warning: MCP server name '{name}' contains a '.' which is not allowed. Please rename it."
+                );
                 std::process::exit(1);
             }
         }
