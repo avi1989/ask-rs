@@ -1,4 +1,4 @@
-use crate::sessions::get_session;
+use crate::sessions::{get_last_session_name, get_session};
 use clap::{Parser, Subcommand};
 
 mod config;
@@ -21,6 +21,10 @@ struct Cli {
     /// Name of the session to use. If provided, this allows you to continue a conversation.
     #[arg(short, long)]
     session: Option<String>,
+
+    /// Enable reply mode. In this mode, the AI will reply to the last question.
+    #[arg(short, long)]
+    reply: bool,
 
     /// The OPENAI model to use. Defaults to gpt-4.1-mini or whatever is configured in the config file.
     #[arg(short, long)]
@@ -159,7 +163,11 @@ async fn main() {
 
             let model = cli.model;
             let question = cli.question.join(" ");
-            let session = cli.session;
+
+            let mut session = cli.session;
+            if session.is_none() && cli.reply {
+                session = get_last_session_name()
+            }
             match llms::ask_question(&question, model, session, cli.verbose).await {
                 Ok(answer) => {
                     markterm::render_text_to_stdout(&answer, None, markterm::ColorChoice::Auto)

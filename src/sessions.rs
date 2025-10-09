@@ -65,5 +65,16 @@ pub fn save_session(
     let session_json = serde_json::to_string_pretty(&session)?;
 
     fs::write(session_path, session_json)?;
+    set_last_session_name(name);
     Ok(())
+}
+
+pub fn get_last_session_name() -> Option<String> {
+    let session_path = get_session_path(".last-session");
+    fs::read_to_string(session_path).ok()
+}
+
+fn set_last_session_name(name: &str) {
+    let session_path = get_session_path(".last-session");
+    fs::write(session_path, name).unwrap();
 }

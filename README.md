@@ -249,6 +249,13 @@ ask unapprove <tool_name>
 ask unapprove git_status
 ```
 
+### Reply to Last Message
+You can reply to the last message with the `--reply` flag:
+```bash
+ask What is the current git branch
+ask --reply Compare it with main
+```
+
 ### Sessions
 
 You can now save and continue AI conversations as sessions for continuous context. Sessions are stored as files in `~/.ask/sessions/<name>` and can be saved or resumed from the CLI.
@@ -266,7 +273,7 @@ After an important interaction, preserve the conversation:
 ask save-last-session --name project-discussion
 ```
 
-- By default, the last session is always available as the session "last".
+- By default, the last session is always available as the session "last". But it is recommended to use --reply to reply to the last message.
 - Any session can be loaded and continued (`--session <name>`).
 
 ## Built-in Tools
