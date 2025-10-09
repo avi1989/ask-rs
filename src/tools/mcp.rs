@@ -27,7 +27,9 @@ impl McpRegistry {
     pub fn from_servers(servers: Vec<(String, McpServerConfig)>) -> Self {
         for (name, _) in &servers {
             if name.contains(".") {
-                eprintln!("Warning: MCP server name '{name}' contains a '.' which is not allowed. Please rename it.");
+                eprintln!(
+                    "Warning: MCP server name '{name}' contains a '.' which is not allowed. Please rename it."
+                );
                 std::process::exit(1);
             }
         }
@@ -254,7 +256,7 @@ fn get_cache_path() -> PathBuf {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".ask_tools_cache.json")
+    PathBuf::from(home).join(".ask/tools_cache.json")
 }
 
 fn load_cache() -> ToolCache {

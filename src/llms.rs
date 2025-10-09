@@ -1,5 +1,6 @@
 use crate::config;
-use crate::config::AskRcConfig;
+use crate::config::AskConfig;
+use crate::sessions::{get_session, save_session};
 use crate::shell::detect_shell_kind;
 use crate::tools::mcp::{
     McpRegistry, execute_mcp_tool_call, load_cached_tools, populate_cache_if_needed,
@@ -39,19 +40,19 @@ fn get_api_key(base_url: &Option<String>, verbose: bool) -> Result<String, anyho
         println!("  ✗ ASK_API_KEY not found");
     }
 
-    if let Some(url) = base_url {
-        if url.contains("openrouter") {
+    if let Some(url) = base_url
+        && url.contains("openrouter")
+    {
+        if verbose {
+            println!("  Detected OpenRouter URL, checking OPENROUTER_API_KEY...");
+        }
+        if let Ok(key) = env::var("OPENROUTER_API_KEY") {
             if verbose {
-                println!("  Detected OpenRouter URL, checking OPENROUTER_API_KEY...");
+                println!("  ✓ Found OPENROUTER_API_KEY");
             }
-            if let Ok(key) = env::var("OPENROUTER_API_KEY") {
-                if verbose {
-                    println!("  ✓ Found OPENROUTER_API_KEY");
-                }
-                return Ok(key);
-            } else if verbose {
-                println!("  ✗ OPENROUTER_API_KEY not found");
-            }
+            return Ok(key);
+        } else if verbose {
+            println!("  ✗ OPENROUTER_API_KEY not found");
         }
     }
 
@@ -72,10 +73,13 @@ fn get_api_key(base_url: &Option<String>, verbose: bool) -> Result<String, anyho
             "No API key found. Please set one of the following environment variables:\n  - ASK_API_KEY (universal)\n  - OPENAI_API_KEY (for OpenAI)\n  - OPENROUTER_API_KEY (if using OpenRouter)"
         }
     };
-    
+
     Err(anyhow::anyhow!(error_msg))
 }
-fn get_openai_client(base_url: &Option<String>, verbose: &bool) -> Result<Client<OpenAIConfig>, anyhow::Error> {
+fn get_openai_client(
+    base_url: &Option<String>,
+    verbose: &bool,
+) -> Result<Client<OpenAIConfig>, anyhow::Error> {
     let api_key = get_api_key(base_url, *verbose)?;
 
     if *verbose {
@@ -96,17 +100,18 @@ fn get_openai_client(base_url: &Option<String>, verbose: &bool) -> Result<Client
 pub async fn ask_question(
     question: &str,
     model: Option<String>,
+    session: Option<String>,
     verbose: bool,
 ) -> Result<String, anyhow::Error> {
     let config = config::load_config().unwrap_or_else(|e| {
         if verbose {
             println!("Failed to load MCP config: {e}");
-            println!("Continuing without MCP tools. Create ~/.askrc to enable MCP servers.");
+            println!("Continuing without MCP tools. Create ~/.ask/config to enable MCP servers.");
         } else {
             eprintln!("Warning: Failed to load MCP config: {e}");
-            eprintln!("Continuing without MCP tools. Create ~/.askrc to enable MCP servers.");
+            eprintln!("Continuing without MCP tools. Create ~/.ask/config to enable MCP servers.");
         }
-        AskRcConfig {
+        AskConfig {
             base_url: None,
             auto_approved_tools: Vec::new(),
             mcp_servers: HashMap::new(),
@@ -119,7 +124,10 @@ pub async fn ask_question(
         println!("  Base URL: {:?}", config.base_url);
         println!("  Default model: {:?}", config.model);
         println!("  MCP servers: {}", config.mcp_servers.len());
-        println!("  Auto-approved tools: {}", config.auto_approved_tools.len());
+        println!(
+            "  Auto-approved tools: {}",
+            config.auto_approved_tools.len()
+        );
     }
 
     let selected_model = model
@@ -166,21 +174,31 @@ pub async fn ask_question(
     let mut tools = vec![execute_command_tool()];
     tools.extend(load_cached_tools(&registry, verbose));
 
-    let system_msg = ChatCompletionRequestSystemMessageArgs::default()
-        .content(ChatCompletionRequestSystemMessageContent::Text(
-            build_system_prompt(&shell),
-        ))
-        .build()
-        .map(ChatCompletionRequestMessage::System)
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let mut messages = match &session {
+        Some(session_name) => {
+            let session_messages = get_session(session_name);
 
-    let user_msg = ChatCompletionRequestUserMessageArgs::default()
-        .content(ChatCompletionRequestUserMessageContent::Text(
-            question.to_string(),
-        ))
-        .build()
-        .map(ChatCompletionRequestMessage::User)
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            match session_messages {
+                Some(messages) => messages,
+                None => {
+                    if verbose {
+                        eprintln!("Session not loaded");
+                    }
+                    get_base_messages(&shell)
+                }
+            }
+        }
+        None => get_base_messages(&shell),
+    };
+
+    messages.push(
+        ChatCompletionRequestUserMessageArgs::default()
+            .content(ChatCompletionRequestUserMessageContent::Text(
+                question.to_string(),
+            ))
+            .build()
+            .map(ChatCompletionRequestMessage::User)?,
+    );
 
     if verbose {
         println!("Using model: {selected_model}");
@@ -188,7 +206,7 @@ pub async fn ask_question(
 
     let mut req = CreateChatCompletionRequestArgs::default()
         .model(selected_model.to_string())
-        .messages(vec![system_msg, user_msg])
+        .messages(messages)
         .tools(tools)
         .tool_choice(ChatCompletionToolChoiceOption::Auto)
         .build()
@@ -198,7 +216,10 @@ pub async fn ask_question(
         println!("Request details:");
         println!("  Model: {}", selected_model);
         println!("  Messages: {} message(s)", req.messages.len());
-        println!("  Tools: {} tool(s)", req.tools.as_ref().map_or(0, |t| t.len()));
+        println!(
+            "  Tools: {} tool(s)",
+            req.tools.as_ref().map_or(0, |t| t.len())
+        );
     }
 
     // Wrap registry in async Mutex for interior mutability (safe across await points)
@@ -212,7 +233,7 @@ pub async fn ask_question(
                 if verbose {
                     eprintln!("OpenAI API Error: {}", error_str);
                 }
-                
+
                 // Check if it's a model-related error and provide helpful feedback
                 if error_str.contains("400") || error_str.contains("invalid type: integer") {
                     return Err(anyhow::anyhow!(
@@ -220,24 +241,32 @@ pub async fn ask_question(
                          1. Invalid model name: '{}'\n\
                          2. Request format issues\n\
                          3. API rate limits or permissions\n\n\
-                         Original error: {}", 
-                        selected_model, error_str
+                         Original error: {}",
+                        selected_model,
+                        error_str
                     ));
                 }
-                
+
                 return Err(anyhow::anyhow!("OpenAI API Error: {}", error_str));
             }
         };
 
         let (should_continue, result) = match response.choices[0].finish_reason {
-            None => (
-                false,
-                Some(response.choices[0].message.content.clone().unwrap()),
-            ),
-            Some(FinishReason::Stop) => (
-                false,
-                Some(response.choices[0].message.content.clone().unwrap()),
-            ),
+            None => {
+                save_session_if_needed(&session, &req.messages, &response.choices[0].message, verbose);
+
+                (
+                    false,
+                    Some(response.choices[0].message.content.clone().unwrap()),
+                )
+            }
+            Some(FinishReason::Stop) => {
+                save_session_if_needed(&session, &req.messages, &response.choices[0].message, verbose);
+                (
+                    false,
+                    Some(response.choices[0].message.content.clone().unwrap()),
+                )
+            }
             Some(FinishReason::Length) => (false, None),
             Some(FinishReason::ToolCalls) => {
                 let tool_calls = response.choices[0].message.tool_calls.clone().unwrap();
@@ -458,6 +487,25 @@ fn execute_tool_call(
 
 const MAX_TURNS: usize = 21;
 
+fn save_session_if_needed(
+    session: &Option<String>,
+    messages: &Vec<ChatCompletionRequestMessage>,
+    response_message: &async_openai::types::ChatCompletionResponseMessage,
+    verbose: bool,
+) {
+    let session_name = session.as_deref().unwrap_or("last");
+    match save_session(session_name, messages, Some(response_message)) {
+        Ok(_) => {
+            if verbose {
+                println!("Session saved successfully");
+            }
+        }
+        Err(e) => {
+            eprintln!("Warning: Failed to save session: {e}");
+        }
+    }
+}
+
 fn format_mcp_tool_call(tool_name: &str, arguments: &str) -> String {
     match serde_json::from_str::<serde_json::Value>(arguments) {
         Ok(json) => {
@@ -486,4 +534,16 @@ fn build_system_prompt(shell: &str) -> String {
          • Today's date is {date}.\n\
          • Format all responses in markdown for readability\n\n"
     )
+}
+
+fn get_base_messages(shell: &str) -> Vec<ChatCompletionRequestMessage> {
+    let system_msg = ChatCompletionRequestSystemMessageArgs::default()
+        .content(ChatCompletionRequestSystemMessageContent::Text(
+            build_system_prompt(shell),
+        ))
+        .build()
+        .map(ChatCompletionRequestMessage::System)
+        .unwrap();
+
+    vec![system_msg]
 }

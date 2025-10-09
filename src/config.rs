@@ -1,6 +1,6 @@
 //! Configuration file loading for MCP servers
 //!
-//! Loads MCP server configurations from `~/.askrc` using Claude Code's `.mcp.json` format.
+//! Loads MCP server configurations from `~/.ask/config` using Claude Code's `.mcp.json` format.
 
 use crate::tools::mcp::McpServerConfig;
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct AskRcConfig {
+pub struct AskConfig {
     #[serde(rename = "mcpServers")]
     pub mcp_servers: HashMap<String, McpServerDefinition>,
 
@@ -32,32 +32,27 @@ pub struct McpServerDefinition {
     pub env: HashMap<String, String>,
 }
 
-pub fn load_config() -> Result<AskRcConfig, Box<dyn std::error::Error>> {
+pub fn load_config() -> Result<AskConfig, Box<dyn std::error::Error>> {
     let config_path = find_config_file()?;
     let contents = fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read config file {config_path:?}: {e}"))?;
 
-    let config: AskRcConfig = serde_json::from_str(&contents)
+    let config: AskConfig = serde_json::from_str(&contents)
         .map_err(|e| format!("Failed to parse config file {config_path:?}: {e}"))?;
 
     Ok(config)
 }
 
 fn find_config_file() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let home_config: PathBuf = shellexpand::tilde("~/.askrc").into_owned().parse()?;
+    let home_config: PathBuf = shellexpand::tilde("~/.ask/config").into_owned().parse()?;
     if home_config.exists() {
         return Ok(home_config);
     }
 
-    let local_config = PathBuf::from("./.askrc");
-    if local_config.exists() {
-        return Ok(local_config);
-    }
-
-    Err("No configuration file found. Create ~/.askrc or ./.askrc".into())
+    Err("No configuration file found. Create ~/.ask/config".into())
 }
 
-pub fn config_to_servers(config: &AskRcConfig) -> Vec<(String, McpServerConfig)> {
+pub fn config_to_servers(config: &AskConfig) -> Vec<(String, McpServerConfig)> {
     config
         .mcp_servers
         .iter()
@@ -77,8 +72,13 @@ pub fn config_to_servers(config: &AskRcConfig) -> Vec<(String, McpServerConfig)>
         .collect()
 }
 
-pub fn save_config(config: &AskRcConfig) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let config_path: PathBuf = shellexpand::tilde("~/.askrc").into_owned().parse()?;
+pub fn save_config(config: &AskConfig) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let config_path: PathBuf = shellexpand::tilde("~/.ask/config").into_owned().parse()?;
+    let config_dir = config_path.parent().unwrap();
+    if !config_dir.exists() {
+        fs::create_dir_all(config_dir)
+            .map_err(|e| format!("Failed to create config directory {config_dir:?}: {e}"))?;
+    }
 
     let json = serde_json::to_string_pretty(config)
         .map_err(|e| format!("Failed to serialize config: {e}"))?;
@@ -95,7 +95,7 @@ pub fn add_server(
     args: Vec<String>,
     env: HashMap<String, String>,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let mut config = load_config().unwrap_or_else(|_| AskRcConfig {
+    let mut config = load_config().unwrap_or_else(|_| AskConfig {
         mcp_servers: HashMap::new(),
         auto_approved_tools: Vec::new(),
         base_url: None,
@@ -131,7 +131,7 @@ pub fn remove_server(name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> 
 
 /// Add a tool to auto-approved list
 pub fn add_auto_approved_tool(tool_name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let mut config = load_config().unwrap_or_else(|_| AskRcConfig {
+    let mut config = load_config().unwrap_or_else(|_| AskConfig {
         mcp_servers: HashMap::new(),
         auto_approved_tools: Vec::new(),
         base_url: None,
