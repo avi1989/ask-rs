@@ -1,5 +1,5 @@
 use crate::config;
-use crate::config::AskRcConfig;
+use crate::config::AskConfig;
 use crate::shell::detect_shell_kind;
 use crate::tools::mcp::{
     McpRegistry, execute_mcp_tool_call, load_cached_tools, populate_cache_if_needed,
@@ -101,12 +101,12 @@ pub async fn ask_question(
     let config = config::load_config().unwrap_or_else(|e| {
         if verbose {
             println!("Failed to load MCP config: {e}");
-            println!("Continuing without MCP tools. Create ~/.askrc to enable MCP servers.");
+            println!("Continuing without MCP tools. Create ~/.ask/config to enable MCP servers.");
         } else {
             eprintln!("Warning: Failed to load MCP config: {e}");
-            eprintln!("Continuing without MCP tools. Create ~/.askrc to enable MCP servers.");
+            eprintln!("Continuing without MCP tools. Create ~/.ask/config to enable MCP servers.");
         }
-        AskRcConfig {
+        AskConfig {
             base_url: None,
             auto_approved_tools: Vec::new(),
             mcp_servers: HashMap::new(),

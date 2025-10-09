@@ -16,7 +16,7 @@ struct Cli {
     #[arg(short, long, global = true)]
     verbose: bool,
 
-    /// The OPENAI model to use. Defaults to gpt-4.1-mini or whatever is configured in ~/.askrc.
+    /// The OPENAI model to use. Defaults to gpt-4.1-mini or whatever is configured in the config file.
     #[arg(short, long)]
     model: Option<String>,
 
@@ -33,7 +33,7 @@ enum Commands {
         command: McpCommands,
     },
 
-    /// Initialize ~/.askrc with default MCP servers
+    /// Initialize ~/.ask/config with default MCP servers
     Init,
 
     /// Set the OpenAI compatible URL for the LLM
@@ -298,14 +298,15 @@ fn handle_init() {
     }
 
     let config_path: std::path::PathBuf =
-        shellexpand::tilde("~/.askrc").into_owned().parse().unwrap();
+        shellexpand::tilde("~/.ask/config").into_owned().parse().unwrap();
+    
     if config_path.exists() {
-        eprintln!("Error: ~/.askrc already exists.");
+        eprintln!("Error: ~/.ask/config already exists.");
         eprintln!("Remove it first if you want to reinitialize.");
         std::process::exit(1);
     }
 
-    println!("This will create ~/.askrc with the following MCP servers:");
+    println!("This will create ~/.ask/config with the following MCP servers:");
     println!();
     println!("  1. filesystem - File system operations (using npx mcp-server-filesystem)");
     println!("     Command: {npx_command} -y mcp-server-filesystem .");
@@ -331,7 +332,7 @@ fn handle_init() {
         return;
     }
 
-    let config = config::AskRcConfig {
+    let config = config::AskConfig {
         base_url: None,
         model: None,
         mcp_servers: {

@@ -254,7 +254,7 @@ fn get_cache_path() -> PathBuf {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".ask_tools_cache.json")
+    PathBuf::from(home).join(".ask/tools_cache.json")
 }
 
 fn load_cache() -> ToolCache {
