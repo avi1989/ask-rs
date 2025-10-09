@@ -156,41 +156,14 @@ async fn main() {
             }
         },
         None => {
-            if cli.question.is_empty() {
-                // Read all of stdin if no question is provided
-                use std::io::Read;
-                let mut buffer = String::new();
-                let stdin = std::io::stdin();
-                let mut handle = stdin.lock();
-                handle
-                    .read_to_string(&mut buffer)
-                    .expect("Failed to read from stdin");
-                let question = buffer.trim().to_string();
-
-                if question.is_empty() {
-                    eprintln!("Error: Please provide a question or use a subcommand (init, mcp)");
-                    std::process::exit(1);
-                }
-
-                let model = cli.model;
-                let mut session = cli.session;
-                if session.is_none() && cli.reply {
-                    session = get_last_session_name();
-                }
-                match llms::ask_question(&question, model, session, cli.verbose).await {
-                    Ok(answer) => {
-                        markterm::render_text_to_stdout(&answer, None, markterm::ColorChoice::Auto)
-                            .unwrap();
-                    }
-                    Err(e) => {
-                        eprintln!("Error: {}", e);
-                        std::process::exit(1);
-                    }
-                }
+            let stdin = get_stdin();
+            if cli.question.is_empty() && stdin.is_empty() {
+                eprintln!("Error: Please provide a question or use a subcommand (init, mcp)");
+                std::process::exit(1);
             } else {
                 let model = cli.model;
-                let question = cli.question.join(" ");
-
+                let mut question = cli.question.join(" ");
+                question = format!("{}\n\n{}", question, stdin);
                 let mut session = cli.session;
                 if session.is_none() && cli.reply {
                     session = get_last_session_name();
@@ -209,6 +182,25 @@ async fn main() {
             }
         }
     }
+}
+
+fn get_stdin() -> String {
+    use std::io::Read;
+
+    // Check if stdin is a terminal (interactive) or a pipe/file
+    if atty::is(atty::Stream::Stdin) {
+        // stdin is a terminal, not piped - return empty string
+        return String::new();
+    }
+
+    let mut buffer = String::new();
+    let stdin = std::io::stdin();
+    let mut handle = stdin.lock();
+    handle
+        .read_to_string(&mut buffer)
+        .expect("Failed to read from stdin");
+
+    buffer.trim().to_string()
 }
 
 fn handle_list() {
