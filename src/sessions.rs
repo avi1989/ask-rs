@@ -49,11 +49,11 @@ pub fn get_session(name: &str) -> Option<Vec<ChatCompletionRequestMessage>> {
 
 pub fn save_session(
     name: &str,
-    request: &Vec<ChatCompletionRequestMessage>,
-    res: Option<&ChatCompletionResponseMessage>
+    request: &[ChatCompletionRequestMessage],
+    res: Option<&ChatCompletionResponseMessage>,
 ) -> Result<(), std::io::Error> {
     let session_path = get_session_path(name);
-    let mut session = request.clone();
+    let mut session = request.to_owned();
     if let Some(res) = res {
         session.push(ChatCompletionRequestMessage::Assistant(
             ChatCompletionRequestAssistantMessage {

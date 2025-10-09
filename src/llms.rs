@@ -253,7 +253,12 @@ pub async fn ask_question(
 
         let (should_continue, result) = match response.choices[0].finish_reason {
             None => {
-                save_session_if_needed(&session, &req.messages, &response.choices[0].message, verbose);
+                save_session_if_needed(
+                    &session,
+                    &req.messages,
+                    &response.choices[0].message,
+                    verbose,
+                );
 
                 (
                     false,
@@ -261,7 +266,12 @@ pub async fn ask_question(
                 )
             }
             Some(FinishReason::Stop) => {
-                save_session_if_needed(&session, &req.messages, &response.choices[0].message, verbose);
+                save_session_if_needed(
+                    &session,
+                    &req.messages,
+                    &response.choices[0].message,
+                    verbose,
+                );
                 (
                     false,
                     Some(response.choices[0].message.content.clone().unwrap()),
@@ -489,7 +499,7 @@ const MAX_TURNS: usize = 21;
 
 fn save_session_if_needed(
     session: &Option<String>,
-    messages: &Vec<ChatCompletionRequestMessage>,
+    messages: &[ChatCompletionRequestMessage],
     response_message: &async_openai::types::ChatCompletionResponseMessage,
     verbose: bool,
 ) {

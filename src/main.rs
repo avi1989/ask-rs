@@ -1,5 +1,5 @@
-use clap::{Parser, Subcommand};
 use crate::sessions::get_session;
+use clap::{Parser, Subcommand};
 
 mod config;
 mod llms;
@@ -43,19 +43,13 @@ enum Commands {
     Init,
 
     /// Set the OpenAI compatible URL for the LLM
-    SetBaseUrl {
-        url: String,
-    },
+    SetBaseUrl { url: String },
 
     /// Set the default model to use for the LLM.
-    SetDefaultModel {
-        model: String,
-    },
+    SetDefaultModel { model: String },
 
     /// Saves the last chat as a named session
-    SaveLastSession {
-        name: String,
-    }
+    SaveLastSession { name: String },
 }
 
 #[derive(Subcommand)]
@@ -147,18 +141,16 @@ async fn main() {
             let _ = config::set_default_model(&model);
             return;
         }
-        Some(Commands::SaveLastSession { name }) => {
-            match get_session("last") {
-                Some(session) => {
-                    let _ = sessions::save_session(&name, &session, None);
-                    println!("Saved session as {name}");
-                }
-                None => {
-                    eprintln!("Error: No session to save");
-                    std::process::exit(1);
-                }
+        Some(Commands::SaveLastSession { name }) => match get_session("last") {
+            Some(session) => {
+                let _ = sessions::save_session(&name, &session, None);
+                println!("Saved session as {name}");
             }
-        }
+            None => {
+                eprintln!("Error: No session to save");
+                std::process::exit(1);
+            }
+        },
         None => {
             if cli.question.is_empty() {
                 eprintln!("Error: Please provide a question or use a subcommand (init, mcp)");
