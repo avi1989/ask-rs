@@ -201,8 +201,27 @@ async fn main() {
 
                 match llms::ask_question(&question, model, session, cli.verbose).await {
                     Ok(answer) => {
-                        markterm::render_text_to_stdout(&answer, None, markterm::ColorChoice::Auto)
+                        // Check if we should use pager for long responses
+                        let line_count = answer.lines().count();
+                        let (_, height) = terminal::size().unwrap_or((80, 24));
+
+                        if atty::is(atty::Stream::Stdout) && line_count > height as usize {
+                            // Render to a Vec<u8> first, then use pager
+                            let mut output = Vec::new();
+                            markterm::render_text(&answer, None, &mut output, true).unwrap();
+                            let rendered = String::from_utf8(output).unwrap();
+
+                            let pager = minus::Pager::new();
+                            pager.set_text(&rendered).unwrap();
+                            minus::page_all(pager).unwrap();
+                        } else {
+                            markterm::render_text_to_stdout(
+                                &answer,
+                                None,
+                                markterm::ColorChoice::Auto,
+                            )
                             .unwrap();
+                        }
                     }
                     Err(e) => {
                         eprintln!("Error: {}", e);
