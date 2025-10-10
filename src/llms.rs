@@ -16,6 +16,7 @@ use async_openai::types::{
 };
 use async_openai::{Client, config::OpenAIConfig};
 use once_cell::sync::Lazy;
+use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::io::Write;
@@ -393,7 +394,7 @@ fn execute_tool_call(
             let is_auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap().contains(&name);
 
             let should_execute = if is_auto_approved {
-                let formatted_call = format_mcp_tool_call(&name, &arguments);
+                let formatted_call = format_mcp_tool_call(&name, &arguments, verbose);
                 if verbose {
                     println!("\n{formatted_call}\n[Auto-approved]");
                 } else {
@@ -402,7 +403,7 @@ fn execute_tool_call(
 
                 true
             } else {
-                let formatted_call = format_mcp_tool_call(&name, &arguments);
+                let formatted_call = format_mcp_tool_call(&name, &arguments, verbose);
                 print!("\n{formatted_call}\n\nExecute MCP tool '{name}'? [y/N/A]: ");
                 std::io::stdout().flush().expect("Failed to flush stdout");
 
@@ -524,12 +525,84 @@ fn save_session_if_needed(
     }
 }
 
-fn format_mcp_tool_call(tool_name: &str, arguments: &str) -> String {
+fn format_file_system_tools(tool_name: &str, json: &Value) -> String {
+    let simple_tool_name = tool_name.replace("filesystem_", "");
+    match simple_tool_name.as_str() {
+        "read_text_file" => {
+            let path = json["path"].to_string();
+            let _head = json["head"].as_number();
+            let _tail = json["tail"].as_number();
+            format!("Reading {path}")
+        }
+        "read_multiple_files" => {
+            let files = json["paths"].as_array().unwrap();
+            let file_string = files
+                .iter()
+                .map(|f| f.to_string())
+                .collect::<Vec<String>>()
+                .join(", ");
+            format!("Reading ({file_string})")
+        }
+        "get_file_info" => {
+            let file = json["path"].to_string();
+            format!("Reading File Metadata ({file})")
+        }
+        "list_directory" => {
+            let path = json["path"].to_string();
+            format!("Listing Files ({path})")
+        }
+        "list_directory_with_sizes" => {
+            let path = json["path"].to_string();
+            format!("Listing Files with sizes ({path})")
+        }
+        "directory_tree" => {
+            let path = json["path"].to_string();
+            let exclude_patterns = json["excludePatterns"].as_array().unwrap();
+            let exclude_patterns_str = exclude_patterns
+                .iter()
+                .map(|p| p.to_string())
+                .collect::<Vec<String>>()
+                .join(", ");
+
+            format!("Listing Directory Tree ({path}) excluding {exclude_patterns_str}")
+        }
+        "list_allowed_directories" => "Listing Allowed Directories".to_string(),
+        "search_files" => {
+            let path = json["path"].to_string();
+            let pattern = json["pattern"].to_string();
+            format!("Searching({pattern}) in {path}")
+        }
+        "write_file" => {
+            let path = json["path"].to_string();
+            let content = json["content"].to_string();
+            format!("Writing {path}:\n{content}")
+        }
+        "create_directory" => {
+            let path = json["path"].to_string();
+            format!("Creating Directory ({path})")
+        }
+        "move_file" => {
+            let source = json["source"].to_string();
+            let destination = json["destination"].to_string();
+            format!("Moving {source} to {destination}")
+        }
+        _ => {
+            let pretty = serde_json::to_string_pretty(&json).unwrap_or_else(|_| json.to_string());
+            format!("Executing {tool_name}\nArguments:\n{pretty}")
+        }
+    }
+}
+
+fn format_mcp_tool_call(tool_name: &str, arguments: &str, verbose: bool) -> String {
     match serde_json::from_str::<serde_json::Value>(arguments) {
         Ok(json) => {
-            let pretty =
-                serde_json::to_string_pretty(&json).unwrap_or_else(|_| arguments.to_string());
-            format!("Executing {tool_name}\nArguments:\n{pretty}")
+            if tool_name.starts_with("filesystem_") && !verbose {
+                format_file_system_tools(tool_name, &json)
+            } else {
+                let pretty =
+                    serde_json::to_string_pretty(&json).unwrap_or_else(|_| arguments.to_string());
+                format!("Executing {tool_name}\nArguments:\n{pretty}")
+            }
         }
         Err(_) => {
             format!("MCP Tool: {tool_name}\nArguments: {arguments}")

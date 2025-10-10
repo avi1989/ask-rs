@@ -19,7 +19,7 @@ jobs:
             target/
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly
+          toolchain: stable
           components: rustfmt, clippy
       - run: cargo fmt --all -- --check
       - run: cargo check
