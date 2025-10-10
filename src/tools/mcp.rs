@@ -1,12 +1,13 @@
 use async_openai::types::{ChatCompletionTool, ChatCompletionToolType, FunctionObject};
 use rmcp::model::CallToolRequestParam;
 use rmcp::service::{RoleClient, ServiceExt};
-use rmcp::transport::{ConfigureCommandExt, TokioChildProcess};
+use rmcp::transport::TokioChildProcess;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::process::Stdio;
 use tokio::process::Command;
 
 type McpService = rmcp::service::RunningService<RoleClient, ()>;
@@ -40,7 +41,10 @@ impl McpRegistry {
     }
 
     #[allow(dead_code)]
-    pub async fn initialize_services(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn initialize_services(
+        &mut self,
+        verbose: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         use futures::future::join_all;
 
         // Spawn all MCP servers in parallel
@@ -49,7 +53,7 @@ impl McpRegistry {
             let config_clone = config.clone();
             let name_clone = name.clone();
             tasks.push(async move {
-                let result = create_mcp_service(&config_clone).await;
+                let result = create_mcp_service(&config_clone, verbose).await;
                 (name_clone, result)
             });
         }
@@ -99,13 +103,14 @@ impl McpRegistry {
     pub async fn initialize_service(
         &mut self,
         server_name: &str,
+        verbose: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if self.services.contains_key(server_name) {
             return Ok(()); // Already initialized
         }
 
         if let Some(config) = self.servers.get(server_name) {
-            match create_mcp_service(config).await {
+            match create_mcp_service(config, verbose).await {
                 Ok(service) => {
                     self.services.insert(server_name.to_string(), service);
 
@@ -175,25 +180,31 @@ struct CacheEntry {
 
 async fn create_mcp_service(
     config: &McpServerConfig,
+    verbose: bool,
 ) -> Result<McpService, Box<dyn std::error::Error>> {
     let command = config.command.clone();
     let args = config.args.clone();
     let env = config.env.clone();
 
-    let service = ()
-        .serve(TokioChildProcess::new(Command::new(&command).configure(
-            move |cmd| {
-                cmd.args(&args);
-                cmd.envs(env);
-            },
-        ))?)
-        .await?;
+    // Create command
+    let mut cmd = Command::new(&command);
+    cmd.args(&args);
+    cmd.envs(&env);
+
+    let mut proc = TokioChildProcess::builder(cmd);
+    if verbose {
+        proc = proc.stderr(Stdio::inherit());
+    } else {
+        proc = proc.stderr(Stdio::null());
+    }
+
+    let (child_process, _stderr) = proc.spawn()?;
+    let service = ().serve(child_process).await?;
 
     Ok(service)
 }
 
 fn convert_mcp_tool_to_openai(mcp_tool: &rmcp::model::Tool, prefix: &str) -> ChatCompletionTool {
-    // Simply pass through the MCP tool's JSON Schema as-is into async-openai's FunctionObject
     let name = format!("{}_{}", prefix, mcp_tool.name);
     ChatCompletionTool {
         r#type: ChatCompletionToolType::Function,
@@ -316,7 +327,7 @@ pub async fn populate_cache_if_needed(
                 let config_clone = config.clone();
                 let name_clone = name.clone();
                 tasks.push(async move {
-                    let result = create_mcp_service(&config_clone).await;
+                    let result = create_mcp_service(&config_clone, verbose).await;
                     (name_clone, config_clone, result)
                 });
             }

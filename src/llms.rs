@@ -446,7 +446,7 @@ fn execute_tool_call(
                     let init_result = tokio::task::block_in_place(|| {
                         tokio::runtime::Handle::current().block_on(async {
                             let mut reg = registry.lock().await;
-                            reg.initialize_service(server_name).await
+                            reg.initialize_service(server_name, verbose).await
                         })
                     });
 
@@ -472,6 +472,11 @@ fn execute_tool_call(
                     if let Some(service) = reg.get_service(server_name) {
                         match execute_mcp_tool_call(service, &server_config, &name, &arguments) {
                             Ok(response) => {
+                                if verbose {
+                                    eprintln!("\n[MCP Tool Response]");
+                                    eprintln!("{}", response);
+                                    eprintln!("[End MCP Tool Response]\n");
+                                }
                                 result = response;
                             }
                             Err(err) => {
