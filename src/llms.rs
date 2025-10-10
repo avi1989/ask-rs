@@ -393,10 +393,13 @@ fn execute_tool_call(
             let is_auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap().contains(&name);
 
             let should_execute = if is_auto_approved {
+                let formatted_call = format_mcp_tool_call(&name, &arguments);
                 if verbose {
-                    let formatted_call = format_mcp_tool_call(&name, &arguments);
                     println!("\n{formatted_call}\n[Auto-approved]");
+                } else {
+                    println!("\n{formatted_call}");
                 }
+
                 true
             } else {
                 let formatted_call = format_mcp_tool_call(&name, &arguments);
@@ -526,7 +529,7 @@ fn format_mcp_tool_call(tool_name: &str, arguments: &str) -> String {
         Ok(json) => {
             let pretty =
                 serde_json::to_string_pretty(&json).unwrap_or_else(|_| arguments.to_string());
-            format!("MCP Tool: {tool_name}\nArguments:\n{pretty}")
+            format!("Executing {tool_name}\nArguments:\n{pretty}")
         }
         Err(_) => {
             format!("MCP Tool: {tool_name}\nArguments: {arguments}")
