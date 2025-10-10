@@ -1,5 +1,7 @@
 use crate::sessions::{get_all_sessions, get_last_session_name, get_session};
+use async_openai::types::{ChatCompletionRequestMessage, ChatCompletionRequestUserMessageContent, ChatCompletionRequestAssistantMessageContent};
 use clap::{Parser, Subcommand};
+use crossterm::{terminal, style::{Color, SetForegroundColor, ResetColor}, ExecutableCommand};
 
 mod config;
 mod llms;
@@ -109,6 +111,9 @@ enum McpCommands {
 enum SessionCommands {
     /// List all sessions
     List,
+
+    /// Shows the conversation for a session
+    Show { name: String },
 }
 
 #[tokio::main]
@@ -146,6 +151,147 @@ async fn main() {
                 let sessions = get_all_sessions();
                 for session in sessions {
                     println!("{:<20} {}", session.name, session.created);
+                }
+            }
+            SessionCommands::Show { name } => {
+                let session = get_session(&name);
+                match session {
+                    Some(session) => {
+                        let (width, _) = terminal::size().unwrap_or((80, 24));
+
+                        println!();
+
+                        for message in session {
+                            match message {
+                                ChatCompletionRequestMessage::User(message) => {
+                                    if let ChatCompletionRequestUserMessageContent::Text(text) = message.content {
+                                        let mut stdout = std::io::stdout();
+
+                                        // User messages: right-aligned, max 60% of terminal width
+                                        let max_box_width = (width as f32 * 0.6) as usize;
+                                        let box_padding = 3;
+
+                                        // Calculate content width (wrap if needed)
+                                        let lines: Vec<&str> = text.lines().collect();
+                                        let content_width = lines.iter()
+                                            .map(|line| line.len())
+                                            .max()
+                                            .unwrap_or(0)
+                                            .min(max_box_width - box_padding * 2);
+
+                                        let box_width = content_width + box_padding * 2;
+                                        let left_margin = width.saturating_sub(box_width as u16 + 2) as usize;
+
+                                        // Print label above box
+                                        let label_indent = left_margin + box_width - 6;
+                                        print!("{}", " ".repeat(label_indent));
+                                        let _ = stdout.execute(SetForegroundColor(Color::Cyan));
+                                        println!("User");
+                                        let _ = stdout.execute(ResetColor);
+
+                                        // Top border
+                                        print!("{}", " ".repeat(left_margin));
+                                        let _ = stdout.execute(SetForegroundColor(Color::Cyan));
+                                        println!("╭{}╮", "─".repeat(box_width));
+                                        let _ = stdout.execute(ResetColor);
+
+                                        // Content
+                                        for line in lines {
+                                            let display_line = if line.len() > content_width {
+                                                &line[..content_width]
+                                            } else {
+                                                line
+                                            };
+                                            let padding = content_width - display_line.len();
+
+                                            print!("{}", " ".repeat(left_margin));
+                                            let _ = stdout.execute(SetForegroundColor(Color::Cyan));
+                                            print!("│");
+                                            let _ = stdout.execute(ResetColor);
+                                            print!("{}{}{}", " ".repeat(box_padding), display_line, " ".repeat(padding + box_padding));
+                                            let _ = stdout.execute(SetForegroundColor(Color::Cyan));
+                                            println!("│");
+                                            let _ = stdout.execute(ResetColor);
+                                        }
+
+                                        // Bottom border
+                                        print!("{}", " ".repeat(left_margin));
+                                        let _ = stdout.execute(SetForegroundColor(Color::Cyan));
+                                        println!("╰{}╯", "─".repeat(box_width));
+                                        let _ = stdout.execute(ResetColor);
+                                        println!();
+                                    }
+                                }
+                                ChatCompletionRequestMessage::Assistant(message) => {
+                                    if let Some(content) = &message.content {
+                                        match content {
+                                            ChatCompletionRequestAssistantMessageContent::Text(text) => {
+                                                let mut stdout = std::io::stdout();
+
+                                                // Assistant messages: left-aligned, max 80% of terminal width
+                                                let max_box_width = (width as f32 * 0.8) as usize;
+                                                let box_padding = 3;
+                                                let left_margin = 2;
+
+                                                // Calculate content width
+                                                let lines: Vec<&str> = text.lines().collect();
+                                                let content_width = lines.iter()
+                                                    .map(|line| line.len())
+                                                    .max()
+                                                    .unwrap_or(0)
+                                                    .min(max_box_width - box_padding * 2);
+
+                                                let box_width = content_width + box_padding * 2;
+
+                                                // Print label above box
+                                                print!("{}", " ".repeat(left_margin));
+                                                let _ = stdout.execute(SetForegroundColor(Color::Green));
+                                                println!("Assistant");
+                                                let _ = stdout.execute(ResetColor);
+
+                                                // Top border
+                                                print!("{}", " ".repeat(left_margin));
+                                                let _ = stdout.execute(SetForegroundColor(Color::Green));
+                                                println!("╭{}╮", "─".repeat(box_width));
+                                                let _ = stdout.execute(ResetColor);
+
+                                                // Content
+                                                for line in lines {
+                                                    let display_line = if line.len() > content_width {
+                                                        &line[..content_width]
+                                                    } else {
+                                                        line
+                                                    };
+                                                    let padding = content_width - display_line.len();
+
+                                                    print!("{}", " ".repeat(left_margin));
+                                                    let _ = stdout.execute(SetForegroundColor(Color::Green));
+                                                    print!("│");
+                                                    let _ = stdout.execute(ResetColor);
+                                                    print!("{}{}{}", " ".repeat(box_padding), display_line, " ".repeat(padding + box_padding));
+                                                    let _ = stdout.execute(SetForegroundColor(Color::Green));
+                                                    println!("│");
+                                                    let _ = stdout.execute(ResetColor);
+                                                }
+
+                                                // Bottom border
+                                                print!("{}", " ".repeat(left_margin));
+                                                let _ = stdout.execute(SetForegroundColor(Color::Green));
+                                                println!("╰{}╯", "─".repeat(box_width));
+                                                let _ = stdout.execute(ResetColor);
+                                                println!();
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    None => {
+                        println!("Session not found");
+                    }
                 }
             }
         },
