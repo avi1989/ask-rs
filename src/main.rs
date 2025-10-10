@@ -1,4 +1,4 @@
-use crate::sessions::{get_last_session_name, get_session};
+use crate::sessions::{get_all_sessions, get_last_session_name, get_session};
 use clap::{Parser, Subcommand};
 
 mod config;
@@ -41,6 +41,11 @@ enum Commands {
     Mcp {
         #[command(subcommand)]
         command: McpCommands,
+    },
+
+    Session {
+        #[command(subcommand)]
+        command: SessionCommands,
     },
 
     /// Initialize ~/.ask/config with default MCP servers
@@ -100,6 +105,12 @@ enum McpCommands {
     Approvals,
 }
 
+#[derive(Subcommand)]
+enum SessionCommands {
+    /// List all sessions
+    List,
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -128,6 +139,14 @@ async fn main() {
             }
             McpCommands::Approvals => {
                 handle_list_approvals();
+            }
+        },
+        Some(Commands::Session { command }) => match command {
+            SessionCommands::List => {
+                let sessions = get_all_sessions();
+                for session in sessions {
+                    println!("{:<20} {}", session.name, session.created);
+                }
             }
         },
         Some(Commands::Init) => {

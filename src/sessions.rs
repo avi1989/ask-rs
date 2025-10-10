@@ -2,9 +2,33 @@ use async_openai::types::{
     ChatCompletionRequestAssistantMessage, ChatCompletionRequestMessage,
     ChatCompletionResponseMessage,
 };
+use chrono::{DateTime, Local};
 use std::fs;
+use std::time::SystemTime;
 
-fn get_session_path(name: &str) -> std::path::PathBuf {
+pub struct Session {
+    pub name: String,
+    pub created: String,
+}
+fn system_time_to_string(system_time: SystemTime) -> String {
+    let datetime: DateTime<Local> = system_time.into();
+    let a = chrono::Local::now() - datetime;
+    if a.num_hours() < 6 {
+        if a.num_hours() > 1 {
+            return format!("{} hours ago", a.num_hours());
+        } else {
+            if a.num_minutes() < 1 {
+                return "just now".to_string();
+            }
+            return format!("{} minutes ago", a.num_minutes());
+        }
+    } else if a.num_hours() < 24 {
+        return format!("{} hours ago", a.num_hours());
+    }
+    datetime.format("%d %b %y %k:%M %p").to_string()
+}
+
+fn get_session_dir() -> std::path::PathBuf {
     let session_dir = "~/.ask/sessions";
 
     let session_dir: std::path::PathBuf = shellexpand::tilde(&session_dir)
@@ -16,6 +40,11 @@ fn get_session_path(name: &str) -> std::path::PathBuf {
         std::fs::create_dir_all(&session_dir).unwrap();
     }
 
+    session_dir
+}
+
+fn get_session_path(name: &str) -> std::path::PathBuf {
+    let session_dir = get_session_dir();
     let session_path = format!("{}/{name}", session_dir.display());
 
     let session_path: std::path::PathBuf = shellexpand::tilde(&session_path)
@@ -23,6 +52,27 @@ fn get_session_path(name: &str) -> std::path::PathBuf {
         .parse()
         .unwrap();
     session_path
+}
+
+pub fn get_all_sessions() -> Vec<Session> {
+    let session_dir = get_session_dir();
+    let sessions = fs::read_dir(session_dir).unwrap();
+    let mut result = vec![];
+    for session in sessions {
+        let session = session.unwrap();
+        let name = session.file_name();
+        let modified_date = session.metadata().unwrap().modified().unwrap();
+        if name != ".last-session" && name != "last" {
+            let s = Session {
+                name: name.to_str().unwrap().to_string(),
+                created: system_time_to_string(modified_date),
+            };
+
+            result.push(s);
+        }
+    }
+
+    result
 }
 
 pub fn get_session(name: &str) -> Option<Vec<ChatCompletionRequestMessage>> {
