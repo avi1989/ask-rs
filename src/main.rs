@@ -263,6 +263,7 @@ fn render_message_box(
     text: &str,
     terminal_width: u16,
     config: MessageBoxConfig,
+    use_colors: bool,
 ) {
     use std::fmt::Write as FmtWrite;
 
@@ -289,38 +290,48 @@ fn render_message_box(
     } else {
         left_margin
     };
-    write!(output, "{}", " ".repeat(label_indent)).unwrap();
-    writeln!(output, "{}{}\x1b[0m", config.color, config.label).unwrap();
 
-    // Top border
-    write!(output, "{}", " ".repeat(left_margin)).unwrap();
-    writeln!(output, "{}╭{}╮\x1b[0m", config.color, "─".repeat(box_width)).unwrap();
+    if use_colors {
+        write!(output, "{}", " ".repeat(label_indent)).unwrap();
+        writeln!(output, "{}{}\x1b[0m", config.color, config.label).unwrap();
 
-    // Content
-    for line in lines {
-        let display_line = if line.len() > content_width {
-            &line[..content_width]
-        } else {
-            line
-        };
-        let padding = content_width - display_line.len();
-
+        // Top border
         write!(output, "{}", " ".repeat(left_margin)).unwrap();
-        write!(output, "{}│\x1b[0m", config.color).unwrap();
-        write!(
-            output,
-            "{}{}{}",
-            " ".repeat(box_padding),
-            display_line,
-            " ".repeat(padding + box_padding)
-        )
-        .unwrap();
-        writeln!(output, "{}│\x1b[0m", config.color).unwrap();
-    }
+        writeln!(output, "{}╭{}╮\x1b[0m", config.color, "─".repeat(box_width)).unwrap();
 
-    // Bottom border
-    write!(output, "{}", " ".repeat(left_margin)).unwrap();
-    writeln!(output, "{}╰{}╯\x1b[0m", config.color, "─".repeat(box_width)).unwrap();
+        // Content
+        for line in lines {
+            let display_line = if line.len() > content_width {
+                &line[..content_width]
+            } else {
+                line
+            };
+            let padding = content_width - display_line.len();
+
+            write!(output, "{}", " ".repeat(left_margin)).unwrap();
+            write!(output, "{}│\x1b[0m", config.color).unwrap();
+            write!(
+                output,
+                "{}{}{}",
+                " ".repeat(box_padding),
+                display_line,
+                " ".repeat(padding + box_padding)
+            )
+            .unwrap();
+            writeln!(output, "{}│\x1b[0m", config.color).unwrap();
+        }
+
+        // Bottom border
+        write!(output, "{}", " ".repeat(left_margin)).unwrap();
+        writeln!(output, "{}╰{}╯\x1b[0m", config.color, "─".repeat(box_width)).unwrap();
+    } else {
+        // Simple text output without colors and box drawing
+        writeln!(output, "{}", config.label).unwrap();
+        writeln!(output, "{}", "-".repeat(config.label.len())).unwrap();
+        for line in lines {
+            writeln!(output, "{}", line).unwrap();
+        }
+    }
     writeln!(output).unwrap();
 }
 
@@ -330,6 +341,7 @@ fn handle_show_session(name: String) {
     let session = get_session(&name);
     match session {
         Some(session) => {
+            let is_interactive = atty::is(atty::Stream::Stdout);
             let (width, _) = terminal::size().unwrap_or((80, 24));
             let mut output = String::new();
 
@@ -351,6 +363,7 @@ fn handle_show_session(name: String) {
                                     align_right: true,
                                     left_margin: 0,
                                 },
+                                is_interactive,
                             );
                         }
                     }
@@ -370,6 +383,7 @@ fn handle_show_session(name: String) {
                                     align_right: false,
                                     left_margin: 2,
                                 },
+                                is_interactive,
                             );
                         }
                     }
@@ -377,7 +391,7 @@ fn handle_show_session(name: String) {
                 }
             }
 
-            if atty::is(atty::Stream::Stdout) {
+            if is_interactive {
                 let pager = minus::Pager::new();
                 pager.set_text(&output).unwrap();
                 minus::page_all(pager).unwrap();
