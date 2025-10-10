@@ -1,5 +1,10 @@
-use crate::sessions::{get_last_session_name, get_session};
+use crate::sessions::{get_all_sessions, get_last_session_name, get_session};
+use async_openai::types::{
+    ChatCompletionRequestAssistantMessageContent, ChatCompletionRequestMessage,
+    ChatCompletionRequestUserMessageContent,
+};
 use clap::{Parser, Subcommand};
+use crossterm::terminal;
 
 mod config;
 mod llms;
@@ -41,6 +46,11 @@ enum Commands {
     Mcp {
         #[command(subcommand)]
         command: McpCommands,
+    },
+
+    Session {
+        #[command(subcommand)]
+        command: SessionCommands,
     },
 
     /// Initialize ~/.ask/config with default MCP servers
@@ -100,6 +110,15 @@ enum McpCommands {
     Approvals,
 }
 
+#[derive(Subcommand)]
+enum SessionCommands {
+    /// List all sessions
+    List,
+
+    /// Shows the conversation for a session
+    Show { name: String },
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -128,6 +147,17 @@ async fn main() {
             }
             McpCommands::Approvals => {
                 handle_list_approvals();
+            }
+        },
+        Some(Commands::Session { command }) => match command {
+            SessionCommands::List => {
+                let sessions = get_all_sessions();
+                for session in sessions {
+                    println!("{:<20} {}", session.name, session.created);
+                }
+            }
+            SessionCommands::Show { name } => {
+                handle_show_session(name);
             }
         },
         Some(Commands::Init) => {
@@ -171,8 +201,27 @@ async fn main() {
 
                 match llms::ask_question(&question, model, session, cli.verbose).await {
                     Ok(answer) => {
-                        markterm::render_text_to_stdout(&answer, None, markterm::ColorChoice::Auto)
+                        // Check if we should use pager for long responses
+                        let line_count = answer.lines().count();
+                        let (_, height) = terminal::size().unwrap_or((80, 24));
+
+                        if atty::is(atty::Stream::Stdout) && line_count > height as usize {
+                            // Render to a Vec<u8> first, then use pager
+                            let mut output = Vec::new();
+                            markterm::render_text(&answer, None, &mut output, true).unwrap();
+                            let rendered = String::from_utf8(output).unwrap();
+
+                            let pager = minus::Pager::new();
+                            pager.set_text(&rendered).unwrap();
+                            minus::page_all(pager).unwrap();
+                        } else {
+                            markterm::render_text_to_stdout(
+                                &answer,
+                                None,
+                                markterm::ColorChoice::Auto,
+                            )
                             .unwrap();
+                        }
                     }
                     Err(e) => {
                         eprintln!("Error: {}", e);
@@ -187,9 +236,7 @@ async fn main() {
 fn get_stdin() -> String {
     use std::io::Read;
 
-    // Check if stdin is a terminal (interactive) or a pipe/file
     if atty::is(atty::Stream::Stdin) {
-        // stdin is a terminal, not piped - return empty string
         return String::new();
     }
 
@@ -201,6 +248,161 @@ fn get_stdin() -> String {
         .expect("Failed to read from stdin");
 
     buffer.trim().to_string()
+}
+
+struct MessageBoxConfig {
+    label: &'static str,
+    color: &'static str,
+    max_width_percent: f32,
+    align_right: bool,
+    left_margin: usize,
+}
+
+fn render_message_box(
+    output: &mut String,
+    text: &str,
+    terminal_width: u16,
+    config: MessageBoxConfig,
+    use_colors: bool,
+) {
+    use std::fmt::Write as FmtWrite;
+
+    let max_box_width = (terminal_width as f32 * config.max_width_percent) as usize;
+    let box_padding = 3;
+
+    let lines: Vec<&str> = text.lines().collect();
+    let content_width = lines
+        .iter()
+        .map(|line| line.len())
+        .max()
+        .unwrap_or(0)
+        .min(max_box_width - box_padding * 2);
+
+    let box_width = content_width + box_padding * 2;
+    let left_margin = if config.align_right {
+        terminal_width.saturating_sub(box_width as u16 + 2) as usize
+    } else {
+        config.left_margin
+    };
+
+    let label_indent = if config.align_right {
+        left_margin + box_width - config.label.len()
+    } else {
+        left_margin
+    };
+
+    if use_colors {
+        write!(output, "{}", " ".repeat(label_indent)).unwrap();
+        writeln!(output, "{}{}\x1b[0m", config.color, config.label).unwrap();
+
+        // Top border
+        write!(output, "{}", " ".repeat(left_margin)).unwrap();
+        writeln!(output, "{}╭{}╮\x1b[0m", config.color, "─".repeat(box_width)).unwrap();
+
+        // Content
+        for line in lines {
+            let display_line = if line.len() > content_width {
+                &line[..content_width]
+            } else {
+                line
+            };
+            let padding = content_width - display_line.len();
+
+            write!(output, "{}", " ".repeat(left_margin)).unwrap();
+            write!(output, "{}│\x1b[0m", config.color).unwrap();
+            write!(
+                output,
+                "{}{}{}",
+                " ".repeat(box_padding),
+                display_line,
+                " ".repeat(padding + box_padding)
+            )
+            .unwrap();
+            writeln!(output, "{}│\x1b[0m", config.color).unwrap();
+        }
+
+        // Bottom border
+        write!(output, "{}", " ".repeat(left_margin)).unwrap();
+        writeln!(output, "{}╰{}╯\x1b[0m", config.color, "─".repeat(box_width)).unwrap();
+    } else {
+        // Simple text output without colors and box drawing
+        writeln!(output, "{}", config.label).unwrap();
+        writeln!(output, "{}", "-".repeat(config.label.len())).unwrap();
+        for line in lines {
+            writeln!(output, "{}", line).unwrap();
+        }
+    }
+    writeln!(output).unwrap();
+}
+
+fn handle_show_session(name: String) {
+    use std::fmt::Write as FmtWrite;
+
+    let session = get_session(&name);
+    match session {
+        Some(session) => {
+            let is_interactive = atty::is(atty::Stream::Stdout);
+            let (width, _) = terminal::size().unwrap_or((80, 24));
+            let mut output = String::new();
+
+            writeln!(&mut output).unwrap();
+
+            for message in session {
+                match message {
+                    ChatCompletionRequestMessage::User(message) => {
+                        if let ChatCompletionRequestUserMessageContent::Text(text) = message.content
+                        {
+                            render_message_box(
+                                &mut output,
+                                &text,
+                                width,
+                                MessageBoxConfig {
+                                    label: "User",
+                                    color: "\x1b[36m",
+                                    max_width_percent: 0.6,
+                                    align_right: true,
+                                    left_margin: 0,
+                                },
+                                is_interactive,
+                            );
+                        }
+                    }
+                    ChatCompletionRequestMessage::Assistant(message) => {
+                        if let Some(content) = &message.content
+                            && let ChatCompletionRequestAssistantMessageContent::Text(text) =
+                                content
+                        {
+                            render_message_box(
+                                &mut output,
+                                text,
+                                width,
+                                MessageBoxConfig {
+                                    label: "Assistant",
+                                    color: "\x1b[32m",
+                                    max_width_percent: 0.8,
+                                    align_right: false,
+                                    left_margin: 2,
+                                },
+                                is_interactive,
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if is_interactive {
+                let pager = minus::Pager::new();
+                pager.set_text(&output).unwrap();
+                minus::page_all(pager).unwrap();
+            } else {
+                print!("{}", output);
+            }
+        }
+        None => {
+            println!("Session not found");
+        }
+    }
 }
 
 fn handle_list() {
