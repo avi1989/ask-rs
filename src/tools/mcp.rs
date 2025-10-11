@@ -58,10 +58,8 @@ impl McpRegistry {
             });
         }
 
-        // Wait for all to complete
         let results = join_all(tasks).await;
 
-        // Collect successful services, log failures
         for (name, result) in results {
             match result {
                 Ok(service) => {
@@ -114,7 +112,6 @@ impl McpRegistry {
                 Ok(service) => {
                     self.services.insert(server_name.to_string(), service);
 
-                    // Update cache with tools from this server
                     if let Some(service) = self.services.get(server_name)
                         && let Ok(tools) = get_mcp_tools(service, config)
                     {

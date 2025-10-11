@@ -1,3 +1,4 @@
+use crate::approval;
 use crate::config;
 use crate::config::AskConfig;
 use crate::sessions::{get_session, save_session};
@@ -15,16 +16,10 @@ use async_openai::types::{
     CreateChatCompletionRequestArgs, FinishReason,
 };
 use async_openai::{Client, config::OpenAIConfig};
-use once_cell::sync::Lazy;
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::env;
-use std::io::Write;
-use std::sync::Mutex;
 use tokio::sync::Mutex as AsyncMutex;
-
-/// Track tools that have been auto-approved with "A" (accept all) option
-static AUTO_APPROVED_TOOLS: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 
 fn get_api_key(base_url: &Option<String>, verbose: bool) -> Result<String, anyhow::Error> {
     if verbose {
@@ -153,13 +148,8 @@ pub async fn ask_question(
         println!("  Final model: {}", selected_model);
     }
 
-    // Initialize AUTO_APPROVED_TOOLS from config
-    {
-        let mut auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap();
-        for tool in &config.auto_approved_tools {
-            auto_approved.insert(tool.clone());
-        }
-    }
+    // Initialize auto-approved tools from config
+    approval::initialize_from_config(&config.auto_approved_tools);
 
     let client = get_openai_client(&config.base_url, &verbose)?;
     let shell = detect_shell_kind();
@@ -235,7 +225,6 @@ pub async fn ask_question(
                     eprintln!("OpenAI API Error: {}", error_str);
                 }
 
-                // Check if it's a model-related error and provide helpful feedback
                 if error_str.contains("400") || error_str.contains("invalid type: integer") {
                     return Err(anyhow::anyhow!(
                         "API request failed with 400 error. This might be due to:\n\
@@ -319,6 +308,103 @@ pub async fn ask_question(
     )))
 }
 
+fn execute_command_with_approval(arguments: &str, verbose: bool) -> String {
+    let args: ExecuteCommandRequest = match serde_json::from_str(arguments) {
+        Ok(args) => args,
+        Err(e) => return format!("Error: Failed to parse command arguments: {}", e),
+    };
+
+    let should_execute = approval::check_approval("execute_command", &args.command, verbose);
+
+    if should_execute {
+        let cmd_result = crate::tools::execute_command(&args.command, &args.working_directory);
+        if cmd_result.is_empty() {
+            "Executed".to_string()
+        } else {
+            cmd_result
+        }
+    } else {
+        "Command execution canceled by user.".to_string()
+    }
+}
+
+async fn ensure_mcp_server_initialized(
+    registry: &mut McpRegistry,
+    server_name: &str,
+    verbose: bool,
+) -> Result<(), String> {
+    if registry.get_service(server_name).is_some() {
+        return Ok(());
+    }
+
+    if verbose {
+        eprintln!("Initializing MCP server '{}'...", server_name);
+    }
+
+    registry
+        .initialize_service(server_name, verbose)
+        .await
+        .map_err(|e| format!("Failed to initialize MCP server '{}': {}", server_name, e))
+}
+
+fn execute_mcp_tool(
+    name: &str,
+    arguments: &str,
+    registry: &AsyncMutex<McpRegistry>,
+    verbose: bool,
+) -> String {
+    let server_info = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            let reg = registry.lock().await;
+            reg.find_server_for_tool(name)
+                .map(|(name, config)| (name.to_string(), config.clone()))
+        })
+    });
+
+    let Some((server_name, server_config)) = server_info else {
+        return format!("Unknown tool: {}", name);
+    };
+
+    let formatted_call = format_mcp_tool_call(name, arguments, verbose);
+    let should_execute = approval::check_approval(name, &formatted_call, verbose);
+
+    if !should_execute {
+        return "MCP tool execution canceled by user.".to_string();
+    }
+
+    // Initialize server lazily if not already initialized
+    let init_result = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            let mut reg = registry.lock().await;
+            ensure_mcp_server_initialized(&mut reg, &server_name, verbose).await
+        })
+    });
+
+    if let Err(e) = init_result {
+        return format!("Error: {}", e);
+    }
+
+    let reg = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async { registry.lock().await })
+    });
+
+    if let Some(service) = reg.get_service(&server_name) {
+        match execute_mcp_tool_call(service, &server_config, name, arguments) {
+            Ok(response) => {
+                if verbose {
+                    eprintln!("\n[MCP Tool Response]");
+                    eprintln!("{}", response);
+                    eprintln!("[End MCP Tool Response]\n");
+                }
+                response
+            }
+            Err(err) => format!("Error executing MCP tool {}: {}", name, err),
+        }
+    } else {
+        format!("Error: MCP service '{}' not initialized", server_name)
+    }
+}
+
 fn execute_tool_call(
     tool_call: ChatCompletionMessageToolCall,
     registry: &AsyncMutex<McpRegistry>,
@@ -327,179 +413,12 @@ fn execute_tool_call(
     let name = tool_call.function.name.clone();
     let arguments = tool_call.function.arguments.clone();
     let id = tool_call.id.clone();
-    let result: String;
 
-    if name == "execute_command" {
-        let args: ExecuteCommandRequest = serde_json::from_str(&arguments).unwrap();
-
-        let is_auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap().contains(&name);
-
-        let should_execute = if is_auto_approved {
-            if verbose {
-                println!("{}\n[Auto-approved]", args.command);
-            }
-            true
-        } else {
-            print!(
-                "{}\nCan I execute the above command? [y/N/A]: ",
-                args.command
-            );
-            std::io::stdout().flush().expect("Failed to flush stdout");
-            let mut input = String::new();
-            std::io::stdin()
-                .read_line(&mut input)
-                .expect("Failed to read user input");
-            let trimmed = input.trim().to_lowercase();
-
-            if trimmed == "a" || trimmed == "all" {
-                AUTO_APPROVED_TOOLS.lock().unwrap().insert(name.clone());
-                if let Err(e) = config::add_auto_approved_tool(&name) {
-                    if verbose {
-                        eprintln!("Warning: Failed to save auto-approval to config: {e}");
-                        println!(
-                            "All future '{name}' commands will be auto-approved for this session only."
-                        );
-                    }
-                } else if verbose {
-                    println!(
-                        "All future '{name}' commands will be auto-approved (saved to config)."
-                    );
-                }
-                true
-            } else {
-                trimmed == "y" || trimmed == "yes"
-            }
-        };
-
-        if should_execute {
-            let cmd_result = crate::tools::execute_command(&args.command, &args.working_directory);
-            result = if cmd_result.is_empty() {
-                "Executed".to_string()
-            } else {
-                cmd_result
-            };
-        } else {
-            result = "Command execution canceled by user.".to_string();
-        }
+    let result = if name == "execute_command" {
+        execute_command_with_approval(&arguments, verbose)
     } else {
-        let server_info = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let reg = registry.lock().await;
-                reg.find_server_for_tool(&name)
-                    .map(|(name, config)| (name.to_string(), config.clone()))
-            })
-        });
-
-        if let Some((ref server_name, server_config)) = server_info {
-            let is_auto_approved = AUTO_APPROVED_TOOLS.lock().unwrap().contains(&name);
-
-            let should_execute = if is_auto_approved {
-                let formatted_call = format_mcp_tool_call(&name, &arguments, verbose);
-                if verbose {
-                    println!("\n{formatted_call}\n[Auto-approved]");
-                } else {
-                    println!("\n{formatted_call}");
-                }
-
-                true
-            } else {
-                let formatted_call = format_mcp_tool_call(&name, &arguments, verbose);
-                print!("\n{formatted_call}\n\nExecute MCP tool '{name}'? [y/N/A]: ");
-                std::io::stdout().flush().expect("Failed to flush stdout");
-
-                let mut input = String::new();
-                std::io::stdin()
-                    .read_line(&mut input)
-                    .expect("Failed to read user input");
-                let trimmed = input.trim().to_lowercase();
-
-                if trimmed == "a" || trimmed == "all" {
-                    AUTO_APPROVED_TOOLS.lock().unwrap().insert(name.clone());
-                    if let Err(e) = config::add_auto_approved_tool(&name) {
-                        if verbose {
-                            eprintln!("Warning: Failed to save auto-approval to config: {e}");
-                            println!(
-                                "All future '{name}' calls will be auto-approved for this session only."
-                            );
-                        }
-                    } else if verbose {
-                        println!(
-                            "All future '{name}' calls will be auto-approved (saved to config)."
-                        );
-                    }
-                    true
-                } else {
-                    trimmed == "y" || trimmed == "yes"
-                }
-            };
-
-            if should_execute {
-                // Initialize server lazily if not already initialized
-                let needs_init = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        let reg = registry.lock().await;
-                        reg.get_service(server_name).is_none()
-                    })
-                });
-
-                if needs_init {
-                    if verbose {
-                        eprintln!("Initializing MCP server '{server_name}'...");
-                    }
-
-                    let init_result = tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current().block_on(async {
-                            let mut reg = registry.lock().await;
-                            reg.initialize_service(server_name, verbose).await
-                        })
-                    });
-
-                    if let Err(e) = init_result {
-                        result =
-                            format!("Error: Failed to initialize MCP server '{server_name}': {e}",);
-                        return (id, result);
-                    }
-                }
-
-                let service_result = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        let reg = registry.lock().await;
-                        reg.get_service(server_name).is_some()
-                    })
-                });
-
-                if service_result {
-                    let reg = tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current().block_on(async { registry.lock().await })
-                    });
-
-                    if let Some(service) = reg.get_service(server_name) {
-                        match execute_mcp_tool_call(service, &server_config, &name, &arguments) {
-                            Ok(response) => {
-                                if verbose {
-                                    eprintln!("\n[MCP Tool Response]");
-                                    eprintln!("{}", response);
-                                    eprintln!("[End MCP Tool Response]\n");
-                                }
-                                result = response;
-                            }
-                            Err(err) => {
-                                result = format!("Error executing MCP tool {name}: {err}");
-                            }
-                        }
-                    } else {
-                        result = format!("Error: MCP service '{server_name}' not initialized");
-                    }
-                } else {
-                    result = format!("Error: MCP service '{server_name}' not initialized");
-                }
-            } else {
-                result = "MCP tool execution canceled by user.".to_string();
-            }
-        } else {
-            result = format!("Unknown tool: {name}");
-        }
-    }
+        execute_mcp_tool(&name, &arguments, registry, verbose)
+    };
 
     (id, result)
 }
