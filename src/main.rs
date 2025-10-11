@@ -116,7 +116,7 @@ enum SessionCommands {
     List,
 
     /// Shows the conversation for a session
-    Show { name: String },
+    Show { name: Option<String> },
 }
 
 #[tokio::main]
@@ -157,6 +157,8 @@ async fn main() {
                 }
             }
             SessionCommands::Show { name } => {
+                let name =
+                    name.unwrap_or_else(|| get_last_session_name().unwrap_or("last".to_string()));
                 handle_show_session(name);
             }
         },
@@ -345,6 +347,27 @@ fn handle_show_session(name: String) {
             let (width, _) = terminal::size().unwrap_or((80, 24));
             let mut output = String::new();
 
+            writeln!(&mut output).unwrap();
+
+            // Display session name header (centered in interactive mode)
+            if is_interactive {
+                let header_text = format!("═══ Session: {} ═══", name);
+                let header_len = header_text.chars().count();
+                let left_padding = if header_len < width as usize {
+                    (width as usize - header_len) / 2
+                } else {
+                    0
+                };
+                writeln!(
+                    &mut output,
+                    "{}\x1b[1m\x1b[35m{}\x1b[0m",
+                    " ".repeat(left_padding),
+                    header_text
+                )
+                .unwrap();
+            } else {
+                writeln!(&mut output, "=== Session: {} ===", name).unwrap();
+            }
             writeln!(&mut output).unwrap();
 
             for message in session {
