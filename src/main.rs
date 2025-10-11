@@ -61,9 +61,6 @@ enum Commands {
 
     /// Set the default model to use for the LLM.
     SetDefaultModel { model: String },
-
-    /// Saves the last chat as a named session
-    SaveLastSession { name: String },
 }
 
 #[derive(Subcommand)]
@@ -117,6 +114,9 @@ enum SessionCommands {
 
     /// Shows the conversation for a session
     Show { name: Option<String> },
+
+    /// Saves the last chat as a named session
+    Save { name: String },
 }
 
 #[tokio::main]
@@ -161,6 +161,18 @@ async fn main() {
                     name.unwrap_or_else(|| get_last_session_name().unwrap_or("last".to_string()));
                 handle_show_session(name);
             }
+            SessionCommands::Save { name } => {
+                match get_session("last") {
+                    Some(session) => {
+                        let _ = sessions::save_session(&name, &session, None);
+                        println!("Saved session as {name}");
+                    }
+                    None => {
+                        eprintln!("Error: No session to save");
+                        std::process::exit(1);
+                    }
+                }
+            }
         },
         Some(Commands::Init) => {
             handle_init();
@@ -176,16 +188,6 @@ async fn main() {
             println!("Settings default model to {model}");
             let _ = config::set_default_model(&model);
             return;
-        }
-        Some(Commands::SaveLastSession { name }) => match get_session("last") {
-            Some(session) => {
-                let _ = sessions::save_session(&name, &session, None);
-                println!("Saved session as {name}");
-            }
-            None => {
-                eprintln!("Error: No session to save");
-                std::process::exit(1);
-            }
         },
         None => {
             let stdin = get_stdin();
