@@ -5,6 +5,7 @@ use crate::sessions::get_last_session_name;
 use clap::Parser;
 use crossterm::terminal;
 
+mod approval;
 mod commands;
 mod config;
 mod llms;
@@ -50,81 +51,89 @@ async fn main() {
         Some(Commands::Init) => {
             handle_init();
         }
-        Some(Commands::SetBaseUrl { url }) => {
-            print!("Setting base URL to {}. Continue? [y/N]: ", url);
-            use std::io::Write;
-            std::io::stdout().flush().unwrap();
-            let _ = config::set_base_url(&url);
-            return;
-        }
-        Some(Commands::SetDefaultModel { model }) => {
-            println!("Settings default model to {model}");
-            let _ = config::set_default_model(&model);
-            return;
-        }
+        Some(Commands::SetBaseUrl { url }) => set_base_url(&url),
+        Some(Commands::SetDefaultModel { model }) => set_model(&model),
         None => {
-            let stdin = get_stdin();
+            let stdin = match get_stdin() {
+                Ok(input) => input,
+                Err(e) => {
+                    eprintln!("Error: Failed to read from stdin: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
             if cli.question.is_empty() && stdin.is_empty() {
                 eprintln!("Error: Please provide a question or use a subcommand (init, mcp)");
                 std::process::exit(1);
-            } else {
-                let model = cli.model;
-                let mut question = cli.question.join(" ");
-                question = format!("{}\n\n{}", question, stdin);
-                let mut session = cli.session;
-                if session.is_none() && cli.reply {
-                    session = get_last_session_name();
-                }
+            }
 
-                match llms::ask_question(&question, model, session, cli.verbose).await {
-                    Ok(answer) => {
-                        // Check if we should use pager for long responses
-                        let line_count = answer.lines().count();
-                        let (_, height) = terminal::size().unwrap_or((80, 24));
+            let model = cli.model;
+            let mut question = cli.question.join(" ");
+            question = format!("{}\n\n{}", question, stdin);
+            let mut session = cli.session;
+            if session.is_none() && cli.reply {
+                session = get_last_session_name();
+            }
 
-                        if atty::is(atty::Stream::Stdout) && line_count > height as usize {
-                            // Render to a Vec<u8> first, then use pager
-                            let mut output = Vec::new();
-                            markterm::render_text(&answer, None, &mut output, true).unwrap();
-                            let rendered = String::from_utf8(output).unwrap();
+            match llms::ask_question(&question, model, session, cli.verbose).await {
+                Ok(answer) => {
+                    // Check if we should use pager for long responses
+                    let line_count = answer.lines().count();
+                    let (_, height) = terminal::size().unwrap_or((80, 24));
 
-                            let pager = minus::Pager::new();
-                            pager.set_text(&rendered).unwrap();
-                            minus::page_all(pager).unwrap();
+                    if atty::is(atty::Stream::Stdout) && line_count > height as usize {
+                        // Render to a Vec<u8> first, then use pager
+                        let mut output = Vec::new();
+                        if let Err(e) = markterm::render_text(&answer, None, &mut output, true) {
+                            eprintln!("Warning: Failed to render markdown: {}", e);
+                            println!("{}", answer);
                         } else {
-                            markterm::render_text_to_stdout(
-                                &answer,
-                                None,
-                                markterm::ColorChoice::Auto,
-                            )
-                            .unwrap();
+                            match String::from_utf8(output) {
+                                Ok(rendered) => {
+                                    let pager = minus::Pager::new();
+                                    if let Err(e) = pager.set_text(&rendered) {
+                                        eprintln!("Warning: Failed to set pager text: {}", e);
+                                        println!("{}", answer);
+                                    } else if let Err(e) = minus::page_all(pager) {
+                                        eprintln!("Warning: Failed to display pager: {}", e);
+                                        println!("{}", answer);
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("Warning: Failed to convert output to UTF-8: {}", e);
+                                    println!("{}", answer);
+                                }
+                            }
                         }
+                    } else if let Err(e) =
+                        markterm::render_text_to_stdout(&answer, None, markterm::ColorChoice::Auto)
+                    {
+                        eprintln!("Warning: Failed to render markdown: {}", e);
+                        println!("{}", answer);
                     }
-                    Err(e) => {
-                        eprintln!("Error: {}", e);
-                        std::process::exit(1);
-                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
                 }
             }
         }
     }
 }
 
-fn get_stdin() -> String {
+fn get_stdin() -> Result<String, std::io::Error> {
     use std::io::Read;
 
     if atty::is(atty::Stream::Stdin) {
-        return String::new();
+        return Ok(String::new());
     }
 
     let mut buffer = String::new();
     let stdin = std::io::stdin();
     let mut handle = stdin.lock();
-    handle
-        .read_to_string(&mut buffer)
-        .expect("Failed to read from stdin");
+    handle.read_to_string(&mut buffer)?;
 
-    buffer.trim().to_string()
+    Ok(buffer.trim().to_string())
 }
 
 fn handle_init() {
@@ -154,10 +163,14 @@ fn handle_init() {
         std::process::exit(1);
     }
 
-    let config_path: std::path::PathBuf = shellexpand::tilde("~/.ask/config")
-        .into_owned()
-        .parse()
-        .unwrap();
+    let config_path: std::path::PathBuf =
+        match shellexpand::tilde("~/.ask/config").into_owned().parse() {
+            Ok(path) => path,
+            Err(e) => {
+                eprintln!("Error: Failed to parse config path: {}", e);
+                std::process::exit(1);
+            }
+        };
 
     if config_path.exists() {
         eprintln!("Error: ~/.ask/config already exists.");
@@ -180,10 +193,15 @@ fn handle_init() {
 
     print!("Continue? [y/N]: ");
     use std::io::Write;
-    std::io::stdout().flush().unwrap();
+    if let Err(e) = std::io::stdout().flush() {
+        eprintln!("Warning: Failed to flush stdout: {}", e);
+    }
 
     let mut response = String::new();
-    std::io::stdin().read_line(&mut response).unwrap();
+    if let Err(e) = std::io::stdin().read_line(&mut response) {
+        eprintln!("Error: Failed to read user input: {}", e);
+        std::process::exit(1);
+    }
     let response = response.trim().to_lowercase();
 
     if response != "y" && response != "yes" {
@@ -234,6 +252,44 @@ fn handle_init() {
         }
         Err(e) => {
             eprintln!("Error creating config: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn set_base_url(url: &str) {
+    print!("Setting base URL to {}. Continue? [y/N]: ", url);
+    use std::io::Write;
+    if let Err(e) = std::io::stdout().flush() {
+        eprintln!("Warning: Failed to flush stdout: {}", e);
+    }
+
+    let mut response = String::new();
+    if let Err(e) = std::io::stdin().read_line(&mut response) {
+        eprintln!("Error: Failed to read user input: {}", e);
+        std::process::exit(1);
+    }
+    let response = response.trim().to_lowercase();
+
+    if response != "y" && response != "yes" {
+        println!("Cancelled.");
+        return;
+    }
+
+    match config::set_base_url(url) {
+        Ok(_) => println!("✓ Base URL set to {}", url),
+        Err(e) => {
+            eprintln!("Error: Failed to set base URL: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn set_model(model: &str) {
+    match config::set_default_model(model) {
+        Ok(_) => println!("✓ Default model set to {}", model),
+        Err(e) => {
+            eprintln!("Error: Failed to set default model: {}", e);
             std::process::exit(1);
         }
     }

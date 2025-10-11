@@ -8,22 +8,30 @@ use crossterm::terminal;
 
 pub fn handle_session_commands(command: SessionCommands) {
     match command {
-        SessionCommands::List => {
-            let sessions = get_all_sessions();
-            for session in sessions {
-                println!("{:<20} {}", session.name, session.created);
+        SessionCommands::List => match get_all_sessions() {
+            Ok(sessions) => {
+                for session in sessions {
+                    println!("{:<20} {}", session.name, session.created);
+                }
             }
-        }
+            Err(e) => {
+                eprintln!("Error: Failed to list sessions: {}", e);
+                std::process::exit(1);
+            }
+        },
         SessionCommands::Show { name } => {
-            let name =
-                name.unwrap_or_else(|| get_last_session_name().unwrap_or("last".to_string()));
+            let name = name
+                .unwrap_or_else(|| get_last_session_name().unwrap_or_else(|| "last".to_string()));
             handle_show_session(name);
         }
         SessionCommands::Save { name } => match get_session("last") {
-            Some(session) => {
-                let _ = save_session(&name, &session, None);
-                println!("Saved session as {name}");
-            }
+            Some(session) => match save_session(&name, &session, None) {
+                Ok(_) => println!("Saved session as {name}"),
+                Err(e) => {
+                    eprintln!("Error: Failed to save session: {}", e);
+                    std::process::exit(1);
+                }
+            },
             None => {
                 eprintln!("Error: No session to save");
                 std::process::exit(1);
