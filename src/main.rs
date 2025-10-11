@@ -90,21 +90,6 @@ enum McpCommands {
         /// Name of the MCP server to remove
         name: String,
     },
-
-    /// Approve a tool to auto-execute without prompting
-    Approve {
-        /// Name of the tool to auto-approve (e.g., "git_status", "execute_command")
-        tool_name: String,
-    },
-
-    /// Unapprove a tool (require prompting again)
-    Unapprove {
-        /// Name of the tool to remove from auto-approve list
-        tool_name: String,
-    },
-
-    /// List all auto-approved tools
-    Approvals,
 }
 
 #[derive(Subcommand)]
@@ -139,15 +124,6 @@ async fn main() {
             McpCommands::Remove { name } => {
                 handle_remove(name);
             }
-            McpCommands::Approve { tool_name } => {
-                handle_approve(tool_name);
-            }
-            McpCommands::Unapprove { tool_name } => {
-                handle_unapprove(tool_name);
-            }
-            McpCommands::Approvals => {
-                handle_list_approvals();
-            }
         },
         Some(Commands::Session { command }) => match command {
             SessionCommands::List => {
@@ -161,18 +137,16 @@ async fn main() {
                     name.unwrap_or_else(|| get_last_session_name().unwrap_or("last".to_string()));
                 handle_show_session(name);
             }
-            SessionCommands::Save { name } => {
-                match get_session("last") {
-                    Some(session) => {
-                        let _ = sessions::save_session(&name, &session, None);
-                        println!("Saved session as {name}");
-                    }
-                    None => {
-                        eprintln!("Error: No session to save");
-                        std::process::exit(1);
-                    }
+            SessionCommands::Save { name } => match get_session("last") {
+                Some(session) => {
+                    let _ = sessions::save_session(&name, &session, None);
+                    println!("Saved session as {name}");
                 }
-            }
+                None => {
+                    eprintln!("Error: No session to save");
+                    std::process::exit(1);
+                }
+            },
         },
         Some(Commands::Init) => {
             handle_init();
@@ -188,7 +162,7 @@ async fn main() {
             println!("Settings default model to {model}");
             let _ = config::set_default_model(&model);
             return;
-        },
+        }
         None => {
             let stdin = get_stdin();
             if cli.question.is_empty() && stdin.is_empty() {
@@ -491,55 +465,6 @@ fn handle_remove(name: String) {
         Err(e) => {
             eprintln!("Error removing server: {e}");
             std::process::exit(1);
-        }
-    }
-}
-
-fn handle_approve(tool_name: String) {
-    match config::add_auto_approved_tool(&tool_name) {
-        Ok(path) => {
-            println!("✓ Tool '{tool_name}' will be auto-approved (saved to {path:?})");
-            println!("  This tool will execute without prompting in future sessions.");
-        }
-        Err(e) => {
-            eprintln!("Error approving tool: {e}");
-            std::process::exit(1);
-        }
-    }
-}
-
-fn handle_unapprove(tool_name: String) {
-    match config::remove_auto_approved_tool(&tool_name) {
-        Ok(path) => {
-            println!("✓ Tool '{tool_name}' removed from auto-approve list (saved to {path:?})");
-            println!("  This tool will require confirmation before executing.");
-        }
-        Err(e) => {
-            eprintln!("Error unapproving tool: {e}");
-            std::process::exit(1);
-        }
-    }
-}
-
-fn handle_list_approvals() {
-    match config::list_auto_approved_tools() {
-        Ok(tools) => {
-            if tools.is_empty() {
-                println!("No auto-approved tools.");
-                println!("Add one with: ask-rs mcp approve <tool_name>");
-                return;
-            }
-
-            println!("Auto-approved tools:\n");
-            for tool in &tools {
-                println!("  ✓ {tool}");
-            }
-            println!("\nThese tools will execute without prompting.");
-            println!("Remove with: ask-rs mcp unapprove <tool_name>");
-        }
-        Err(e) => {
-            eprintln!("Error listing approvals: {e}");
-            eprintln!("No configuration file found.");
         }
     }
 }

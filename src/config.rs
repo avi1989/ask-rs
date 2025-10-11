@@ -145,21 +145,6 @@ pub fn add_auto_approved_tool(tool_name: &str) -> Result<PathBuf, Box<dyn std::e
     save_config(&config)
 }
 
-/// Remove a tool from auto-approved list
-pub fn remove_auto_approved_tool(tool_name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let mut config = load_config()?;
-
-    config.auto_approved_tools.retain(|t| t != tool_name);
-
-    save_config(&config)
-}
-
-/// List all auto-approved tools
-pub fn list_auto_approved_tools() -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let config = load_config()?;
-    Ok(config.auto_approved_tools.clone())
-}
-
 pub fn set_base_url(base_url: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let mut config = load_config()?;
     config.base_url = Some(base_url.to_string());
