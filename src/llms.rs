@@ -451,7 +451,11 @@ fn format_file_system_tools(tool_name: &str, json: &Value) -> String {
             let path = json["path"].to_string();
             let _head = json["head"].as_number();
             let _tail = json["tail"].as_number();
-            format!("Reading {path}")
+            format!("Reading ({path})")
+        }
+        "read_file" => {
+            let path = json["path"].to_string();
+            format!("Reading ({path})")
         }
         "read_multiple_files" => {
             let files = json["paths"].as_array().unwrap();
