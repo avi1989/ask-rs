@@ -13,6 +13,11 @@ pub enum Commands {
         command: SessionCommands,
     },
 
+    Model {
+        #[command(subcommand)]
+        command: ModelCommands,
+    },
+
     /// Initialize ~/.ask/config with default MCP servers
     Init,
 
@@ -20,7 +25,7 @@ pub enum Commands {
     SetBaseUrl { url: String },
 
     /// Set the default model to use for the LLM.
-    SetDefaultModel { model: String },
+    SetDefaultModel,
 }
 
 #[derive(Subcommand)]
@@ -62,4 +67,13 @@ pub enum SessionCommands {
 
     /// Saves the last chat as a named session
     Save { name: String },
+}
+
+#[derive(Subcommand)]
+pub enum ModelCommands {
+    /// Gets the default model
+    Get,
+
+    ///Sets the default model
+    Set { model: String },
 }

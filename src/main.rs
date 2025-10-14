@@ -1,5 +1,6 @@
 use crate::commands::Commands;
 use crate::commands::mcp_commands::handle_mcp_commands;
+use crate::commands::model_commands::handle_model_commands;
 use crate::commands::session_commands::handle_session_commands;
 use crate::sessions::get_last_session_name;
 use clap::Parser;
@@ -54,11 +55,14 @@ async fn main() {
     match cli.command {
         Some(Commands::Mcp { command }) => handle_mcp_commands(command),
         Some(Commands::Session { command }) => handle_session_commands(command),
+        Some(Commands::Model { command }) => handle_model_commands(command),
         Some(Commands::Init) => {
             handle_init();
         }
         Some(Commands::SetBaseUrl { url }) => set_base_url(&url),
-        Some(Commands::SetDefaultModel { model }) => set_model(&model),
+        Some(Commands::SetDefaultModel) => {
+            eprintln!("This command has been deprecated. use ask model set instead.")
+        }
         None => {
             let stdin = match get_stdin() {
                 Ok(input) => input,
@@ -297,16 +301,6 @@ fn set_base_url(url: &str) {
         Ok(_) => println!("✓ Base URL set to {}", url),
         Err(e) => {
             eprintln!("Error: Failed to set base URL: {}", e);
-            std::process::exit(1);
-        }
-    }
-}
-
-fn set_model(model: &str) {
-    match config::set_default_model(model) {
-        Ok(_) => println!("✓ Default model set to {}", model),
-        Err(e) => {
-            eprintln!("Error: Failed to set default model: {}", e);
             std::process::exit(1);
         }
     }
