@@ -153,6 +153,20 @@ pub fn save_session(
     Ok(())
 }
 
+pub fn delete_session(name: &str) -> Result<()> {
+    let session_path = get_session_path(name)?;
+    match fs::remove_file(&session_path) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                eprintln!("Session not found: {:?}", session_path);
+            }
+
+            Err(e.into())
+        }
+    }
+}
+
 pub fn get_last_session_name() -> Option<String> {
     let session_path = get_session_path(".last-session").ok()?;
     fs::read_to_string(session_path).ok()

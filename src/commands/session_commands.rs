@@ -1,5 +1,7 @@
 use crate::commands::SessionCommands;
-use crate::sessions::{get_all_sessions, get_last_session_name, get_session, save_session};
+use crate::sessions::{
+    delete_session, get_all_sessions, get_last_session_name, get_session, save_session,
+};
 use async_openai::types::{
     ChatCompletionRequestAssistantMessageContent, ChatCompletionRequestMessage,
     ChatCompletionRequestUserMessageContent,
@@ -34,6 +36,13 @@ pub fn handle_session_commands(command: SessionCommands) {
             },
             None => {
                 eprintln!("Error: No session to save");
+                std::process::exit(1);
+            }
+        },
+        SessionCommands::Delete { name } => match delete_session(&name) {
+            Ok(_) => println!("Deleted session {name}"),
+            Err(e) => {
+                eprintln!("Error: Failed to delete session: {}", e);
                 std::process::exit(1);
             }
         },

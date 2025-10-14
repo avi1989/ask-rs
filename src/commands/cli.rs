@@ -67,6 +67,9 @@ pub enum SessionCommands {
 
     /// Saves the last chat as a named session
     Save { name: String },
+
+    /// Deletes a session
+    Delete { name: String },
 }
 
 #[derive(Subcommand)]
