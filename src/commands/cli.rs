@@ -79,4 +79,13 @@ pub enum ModelCommands {
 
     ///Sets the default model
     Set { model: String },
+
+    ///Sets an alias for a model
+    Alias { alias: String, model: String },
+
+    /// Gets all the model aliases
+    Aliases,
+
+    /// Removes an alias
+    Unalias { alias: String },
 }

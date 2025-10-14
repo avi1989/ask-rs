@@ -18,6 +18,9 @@ pub struct AskConfig {
 
     #[serde(rename = "defaultModel", default)]
     pub model: Option<String>,
+
+    #[serde(rename = "modelAliases", default)]
+    pub model_aliases: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -110,6 +113,7 @@ pub fn add_server(
         auto_approved_tools: Vec::new(),
         base_url: None,
         model: None,
+        model_aliases: HashMap::new(),
     });
 
     if config.mcp_servers.contains_key(name) {
@@ -151,6 +155,7 @@ pub fn add_auto_approved_tool(tool_name: &str) -> Result<PathBuf> {
         auto_approved_tools: Vec::new(),
         base_url: None,
         model: None,
+        model_aliases: HashMap::new(),
     });
 
     if !config.auto_approved_tools.contains(&tool_name.to_string()) {

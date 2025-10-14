@@ -113,6 +113,7 @@ pub async fn ask_question(
             auto_approved_tools: Vec::new(),
             mcp_servers: HashMap::new(),
             model: None,
+            model_aliases: HashMap::new(),
         }
     });
 
