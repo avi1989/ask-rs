@@ -301,7 +301,12 @@ pub async fn ask_question(
                 None => Err(anyhow::anyhow!("Response too long")),
             };
         } else {
-            continue;
+            save_session_if_needed(
+                    &session,
+                    &req.messages,
+                    &response.choices[0].message,
+                    verbose,
+                );
         }
     }
     Err(anyhow::anyhow!(format!(
