@@ -302,11 +302,11 @@ pub async fn ask_question(
             };
         } else {
             save_session_if_needed(
-                    &session,
-                    &req.messages,
-                    &response.choices[0].message,
-                    verbose,
-                );
+                &session,
+                &req.messages,
+                &response.choices[0].message,
+                verbose,
+            );
         }
     }
     Err(anyhow::anyhow!(format!(

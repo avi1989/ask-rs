@@ -244,6 +244,17 @@ fn handle_init() {
                     env: std::collections::HashMap::new(),
                 },
             );
+            servers.insert(
+                "sequential-thinking".to_string(),
+                config::McpServerDefinition {
+                    command: npx_command.to_string(),
+                    args: vec![
+                        "-y".to_string(),
+                        "@modelcontextprotocol/server-sequential-thinking".to_string(),
+                    ],
+                    env: std::collections::HashMap::new(),
+                },
+            );
             servers
         },
         auto_approved_tools: Vec::new(),
