@@ -36,6 +36,10 @@ struct Cli {
     #[arg(short, long)]
     model: Option<String>,
 
+    /// Maximum number of iterations with the AI (default 21)
+    #[arg(short = 'i', long = "iterations")]
+    iterations: Option<usize>,
+
     /// Question to ask the AI (if no subcommand is provided)
     #[arg(trailing_var_arg = true)]
     question: Vec<String>,
@@ -44,6 +48,8 @@ struct Cli {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+
+    let max_iterations = cli.iterations.unwrap_or(21);
 
     match cli.command {
         Some(Commands::Mcp { command }) => handle_mcp_commands(command),
@@ -75,7 +81,7 @@ async fn main() {
                 session = get_last_session_name();
             }
 
-            match llms::ask_question(&question, model, session, cli.verbose).await {
+            match llms::ask_question(&question, model, session, max_iterations, cli.verbose).await {
                 Ok(answer) => {
                     // Check if we should use pager for long responses
                     let line_count = answer.lines().count();

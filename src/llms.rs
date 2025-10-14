@@ -97,6 +97,7 @@ pub async fn ask_question(
     question: &str,
     model: Option<String>,
     session: Option<String>,
+    max_iterations: usize,
     verbose: bool,
 ) -> Result<String, anyhow::Error> {
     let config = config::load_config().unwrap_or_else(|e| {
@@ -216,7 +217,7 @@ pub async fn ask_question(
     // Wrap registry in async Mutex for interior mutability (safe across await points)
     let registry = AsyncMutex::new(registry);
 
-    for _ in 0..MAX_TURNS {
+    for _ in 0..max_iterations {
         let response = match client.chat().create(req.clone()).await {
             Ok(r) => r,
             Err(e) => {
@@ -304,7 +305,7 @@ pub async fn ask_question(
         }
     }
     Err(anyhow::anyhow!(format!(
-        "No response after {MAX_TURNS} attempts"
+        "No response after {max_iterations} attempts"
     )))
 }
 
@@ -422,8 +423,6 @@ fn execute_tool_call(
 
     (id, result)
 }
-
-const MAX_TURNS: usize = 21;
 
 fn save_session_if_needed(
     session: &Option<String>,
