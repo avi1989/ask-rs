@@ -78,6 +78,17 @@ async fn main() {
             }
 
             let model = cli.model;
+            let selected_model: Option<String> = match model {
+                Some(model) => {
+                    let model_aliases = config::load_config().unwrap().model_aliases;
+                    if let Some(alias) = model_aliases.get(&model) {
+                        Some(alias.to_string())
+                    } else {
+                        Some(model)
+                    }
+                }
+                None => model,
+            };
             let mut question = cli.question.join(" ");
             question = format!("{}\n\n{}", question, stdin);
             let mut session = cli.session;
@@ -85,7 +96,15 @@ async fn main() {
                 session = get_last_session_name();
             }
 
-            match llms::ask_question(&question, model, session, max_iterations, cli.verbose).await {
+            match llms::ask_question(
+                &question,
+                selected_model,
+                session,
+                max_iterations,
+                cli.verbose,
+            )
+            .await
+            {
                 Ok(answer) => {
                     // Check if we should use pager for long responses
                     let line_count = answer.lines().count();
@@ -222,6 +241,7 @@ fn handle_init() {
     let config = config::AskConfig {
         base_url: None,
         model: None,
+        model_aliases: std::collections::HashMap::new(),
         mcp_servers: {
             let mut servers = std::collections::HashMap::new();
             servers.insert(
