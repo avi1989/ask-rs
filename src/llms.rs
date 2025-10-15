@@ -97,7 +97,7 @@ pub async fn ask_question(
     question: &str,
     model: Option<String>,
     session: Option<String>,
-    max_iterations: usize,
+    mut max_iterations: usize,
     verbose: bool,
 ) -> Result<String, anyhow::Error> {
     let config = config::load_config().unwrap_or_else(|e| {
@@ -218,7 +218,8 @@ pub async fn ask_question(
     // Wrap registry in async Mutex for interior mutability (safe across await points)
     let registry = AsyncMutex::new(registry);
 
-    for _ in 0..max_iterations {
+    let mut i = 0;
+    loop {
         let response = match client.chat().create(req.clone()).await {
             Ok(r) => r,
             Err(e) => {
@@ -309,7 +310,23 @@ pub async fn ask_question(
                 verbose,
             );
         }
+        i += 1;
+
+        if i == max_iterations {
+            println!(
+                "The LLM has been invoked {max_iterations} times. Do you want to continue (y/n)?"
+            );
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).unwrap();
+
+            if input.trim().to_lowercase() == "y" {
+                max_iterations *= 2;
+            } else {
+                break;
+            }
+        }
     }
+
     Err(anyhow::anyhow!(format!(
         "No response after {max_iterations} attempts"
     )))
