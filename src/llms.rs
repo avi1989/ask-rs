@@ -270,7 +270,15 @@ pub async fn ask_question(
                     Some(response.choices[0].message.content.clone().unwrap()),
                 )
             }
-            Some(FinishReason::Length) => (false, None),
+            Some(FinishReason::Length) => {
+                save_session_if_needed(
+                    &session,
+                    &req.messages,
+                    &response.choices[0].message,
+                    verbose,
+                );
+                (false, None)
+            }
             Some(FinishReason::ToolCalls) => {
                 let tool_calls = response.choices[0].message.tool_calls.clone().unwrap();
 
@@ -294,7 +302,15 @@ pub async fn ask_question(
 
                 (true, None)
             }
-            _ => (false, None),
+            _ => {
+                save_session_if_needed(
+                    &session,
+                    &req.messages,
+                    &response.choices[0].message,
+                    verbose,
+                );
+                (false, None)
+            }
         };
 
         if !should_continue {
@@ -302,14 +318,8 @@ pub async fn ask_question(
                 Some(r) => Ok(r),
                 None => Err(anyhow::anyhow!("Response too long")),
             };
-        } else {
-            save_session_if_needed(
-                &session,
-                &req.messages,
-                &response.choices[0].message,
-                verbose,
-            );
         }
+
         i += 1;
 
         if i == max_iterations {
@@ -322,6 +332,12 @@ pub async fn ask_question(
             if input.trim().to_lowercase() == "y" {
                 max_iterations *= 2;
             } else {
+                save_session_if_needed(
+                    &session,
+                    &req.messages,
+                    &response.choices[0].message,
+                    verbose,
+                );
                 break;
             }
         }
