@@ -3,9 +3,8 @@ use crate::config;
 use crate::config::AskConfig;
 use crate::sessions::{get_session, save_session};
 use crate::shell::detect_shell_kind;
-use crate::tools::mcp::{
-    McpRegistry, execute_mcp_tool_call, load_cached_tools, populate_cache_if_needed,
-};
+use crate::tools::mcp::execute_mcp_tool_call;
+use crate::tools::tool_cache::{McpRegistry, load_cached_tools, populate_cache_if_needed};
 use crate::tools::{ExecuteCommandRequest, execute_command_tool};
 use async_openai::types::{
     ChatCompletionMessageToolCall, ChatCompletionRequestAssistantMessageArgs,

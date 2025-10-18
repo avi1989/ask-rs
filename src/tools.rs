@@ -1,4 +1,5 @@
 pub(crate) mod mcp;
+pub(crate) mod tool_cache;
 
 use async_openai::types::{ChatCompletionTool, ChatCompletionToolType, FunctionObject};
 use serde::{Deserialize, Serialize};
