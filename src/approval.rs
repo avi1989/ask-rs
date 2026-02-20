@@ -32,7 +32,7 @@ fn add_to_session_auto_approved(tool_name: &str) {
 }
 
 fn prompt_user_approval(prompt_message: &str, tool_name: &str) -> ApprovalResponse {
-    print!("{}\n\nExecute '{}'? [y/N/A]: ", prompt_message, tool_name);
+    print!("{}\nExecute '{}'? [y/N/A]: ", prompt_message, tool_name);
 
     if let Err(e) = std::io::stdout().flush() {
         eprintln!("Warning: Failed to flush stdout: {}", e);

@@ -353,7 +353,7 @@ fn execute_command_with_approval(arguments: &str, verbose: bool) -> String {
         Err(e) => return format!("Error: Failed to parse command arguments: {}", e),
     };
 
-    let should_execute = approval::check_approval("execute_command", &args.command, verbose);
+    let should_execute = approval::check_approval(&args.command, "", verbose);
 
     if should_execute {
         let cmd_result = crate::tools::execute_command(&args.command, &args.working_directory);
