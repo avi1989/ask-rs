@@ -184,14 +184,28 @@ pub async fn create_mcp_service(
 
 fn convert_mcp_tool_to_openai(mcp_tool: &rmcp::model::Tool, prefix: &str) -> ChatCompletionTool {
     let name = format!("{}_{}", prefix, mcp_tool.name);
+
+    // Ensure the schema has required fields for OpenAI
+    let mut schema = mcp_tool.input_schema.as_ref().clone();
+    if !schema.contains_key("type") {
+        schema.insert(
+            "type".to_string(),
+            serde_json::Value::String("object".to_string()),
+        );
+    }
+    if !schema.contains_key("properties") {
+        schema.insert(
+            "properties".to_string(),
+            serde_json::Value::Object(Default::default()),
+        );
+    }
+
     ChatCompletionTool {
         r#type: ChatCompletionToolType::Function,
         function: FunctionObject {
             name,
             description: mcp_tool.description.as_ref().map(|c| c.to_string()),
-            parameters: Some(serde_json::Value::Object(
-                mcp_tool.input_schema.as_ref().clone(),
-            )),
+            parameters: Some(serde_json::Value::Object(schema)),
             strict: None,
         },
     }
