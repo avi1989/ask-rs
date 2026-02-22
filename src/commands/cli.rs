@@ -100,4 +100,5 @@ pub enum BaseUrlCommands {
     Get,
     Set { base_url: String },
     Remove,
+    SetOpenRouter,
 }

@@ -12,6 +12,9 @@ pub fn handle_base_url_commands(command: BaseUrlCommands) {
         BaseUrlCommands::Remove => {
             handle_remove();
         }
+        BaseUrlCommands::SetOpenRouter => {
+            handle_set("https://openrouter.ai/api/v1");
+        }
     }
 }
 
