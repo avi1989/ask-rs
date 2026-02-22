@@ -1,4 +1,5 @@
 use crate::commands::Commands;
+use crate::commands::base_url_commands::handle_base_url_commands;
 use crate::commands::mcp_commands::handle_mcp_commands;
 use crate::commands::model_commands::handle_model_commands;
 use crate::commands::session_commands::handle_session_commands;
@@ -56,6 +57,7 @@ async fn main() {
         Some(Commands::Mcp { command }) => handle_mcp_commands(command),
         Some(Commands::Session { command }) => handle_session_commands(command),
         Some(Commands::Model { command }) => handle_model_commands(command),
+        Some(Commands::BaseUrl { command }) => handle_base_url_commands(command),
         Some(Commands::Init) => {
             handle_init();
         }

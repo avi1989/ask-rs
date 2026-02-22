@@ -1,3 +1,4 @@
+pub mod base_url_commands;
 mod cli;
 pub mod mcp_commands;
 pub mod model_commands;

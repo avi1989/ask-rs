@@ -176,6 +176,14 @@ pub fn set_base_url(base_url: &str) -> Result<PathBuf> {
     save_config(&config).context("Failed to save config after setting base URL")
 }
 
+pub fn remove_base_url() -> Result<PathBuf> {
+    let mut config = load_config().context("Failed to load config to set base URL")?;
+
+    config.base_url = None;
+
+    save_config(&config).context("Failed to save config")
+}
+
 pub fn set_default_model(model: &str) -> Result<PathBuf> {
     let mut config = load_config().context("Failed to load config to set default model")?;
 

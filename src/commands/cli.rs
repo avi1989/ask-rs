@@ -18,6 +18,11 @@ pub enum Commands {
         command: ModelCommands,
     },
 
+    BaseUrl {
+        #[command(subcommand)]
+        command: BaseUrlCommands,
+    },
+
     /// Initialize ~/.ask/config with default MCP servers
     Init,
 
@@ -88,4 +93,11 @@ pub enum ModelCommands {
 
     /// Removes an alias
     Unalias { alias: String },
+}
+
+#[derive(Subcommand)]
+pub enum BaseUrlCommands {
+    Get,
+    Set { base_url: String },
+    Remove,
 }
