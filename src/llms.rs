@@ -113,6 +113,7 @@ pub async fn ask_question(
             mcp_servers: HashMap::new(),
             model: None,
             model_aliases: HashMap::new(),
+            presets: HashMap::new(),
         }
     });
 

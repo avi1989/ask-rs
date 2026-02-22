@@ -23,6 +23,11 @@ pub enum Commands {
         command: BaseUrlCommands,
     },
 
+    Preset {
+        #[command(subcommand)]
+        command: Presets,
+    },
+
     /// Initialize ~/.ask/config with default MCP servers
     Init,
 
@@ -101,4 +106,11 @@ pub enum BaseUrlCommands {
     Set { base_url: String },
     Remove,
     SetOpenRouter,
+}
+
+#[derive(Subcommand)]
+pub enum Presets {
+    Add { name: String, prompt: Vec<String> },
+    List,
+    Remove { name: String },
 }
