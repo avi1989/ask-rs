@@ -174,6 +174,12 @@ ask explain the code in main.rs
 ask list all TODO comments in the project
 ```
 
+**Streaming overrides:**
+```bash
+ask --stream "summarize this file"
+ask --no-stream "summarize this file"
+```
+
 ### Manage MCP Servers
 
 #### List Servers

@@ -41,6 +41,14 @@ struct Cli {
     #[arg(short = 'i', long = "iterations")]
     iterations: Option<usize>,
 
+    /// Stream response output to the terminal
+    #[arg(long, conflicts_with = "no_stream")]
+    stream: bool,
+
+    /// Disable streaming output (use markdown rendering and pager)
+    #[arg(long, conflicts_with = "stream")]
+    no_stream: bool,
+
     /// Question to ask the AI (if no subcommand is provided)
     #[arg(trailing_var_arg = true)]
     question: Vec<String>,
@@ -97,7 +105,13 @@ async fn main() {
                 session = get_last_session_name();
             }
 
-            let stream = config::resolve_stream_setting(&loaded_config);
+            let stream = if cli.stream {
+                true
+            } else if cli.no_stream {
+                false
+            } else {
+                config::resolve_stream_setting(&loaded_config)
+            };
 
             match llms::ask_question(
                 &question,
