@@ -11,13 +11,16 @@ use async_openai::types::{
     ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
     ChatCompletionRequestSystemMessageContent, ChatCompletionRequestToolMessageArgs,
     ChatCompletionRequestToolMessageContent, ChatCompletionRequestUserMessageArgs,
-    ChatCompletionRequestUserMessageContent, ChatCompletionToolChoiceOption,
-    CreateChatCompletionRequestArgs, FinishReason,
+    ChatCompletionRequestUserMessageContent, ChatCompletionResponseMessage,
+    ChatCompletionToolChoiceOption, ChatCompletionToolType, CreateChatCompletionRequestArgs,
+    FinishReason, FunctionCall, Role,
 };
 use async_openai::{Client, config::OpenAIConfig};
+use futures::StreamExt;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::env;
+use std::io::Write;
 use tokio::sync::Mutex as AsyncMutex;
 
 fn get_api_key(base_url: &Option<String>, verbose: bool) -> Result<String, anyhow::Error> {
@@ -98,6 +101,7 @@ pub async fn ask_question(
     session: Option<String>,
     mut max_iterations: usize,
     verbose: bool,
+    stream: bool,
 ) -> Result<String, anyhow::Error> {
     let config = config::load_config().unwrap_or_else(|e| {
         if verbose {
@@ -113,6 +117,7 @@ pub async fn ask_question(
             mcp_servers: HashMap::new(),
             model: None,
             model_aliases: HashMap::new(),
+            stream: None,
         }
     });
 
@@ -218,97 +223,174 @@ pub async fn ask_question(
     let registry = AsyncMutex::new(registry);
 
     let mut i = 0;
+    let mut last_response_message: Option<ChatCompletionResponseMessage>;
     loop {
-        let response = match client.chat().create(req.clone()).await {
-            Ok(r) => r,
-            Err(e) => {
-                let error_str = e.to_string();
-                if verbose {
-                    eprintln!("OpenAI API Error: {}", error_str);
+        let (should_continue, result) = if stream {
+            let stream_result =
+                stream_chat_completion(&client, &req, verbose, &selected_model).await?;
+
+            #[allow(deprecated)]
+            let base_response_message =
+                |content: Option<String>,
+                 tool_calls: Option<Vec<ChatCompletionMessageToolCall>>| {
+                    ChatCompletionResponseMessage {
+                        content,
+                        refusal: None,
+                        tool_calls,
+                        role: Role::Assistant,
+                        function_call: None,
+                        audio: None,
+                    }
+                };
+
+            match stream_result.finish_reason {
+                None | Some(FinishReason::Stop) => {
+                    let response_message =
+                        base_response_message(Some(stream_result.content.clone()), None);
+                    last_response_message = Some(response_message.clone());
+
+                    save_session_if_needed(&session, &req.messages, &response_message, verbose);
+
+                    (false, Some(stream_result.content))
                 }
+                Some(FinishReason::Length) => {
+                    let response_message =
+                        base_response_message(Some(stream_result.content.clone()), None);
+                    last_response_message = Some(response_message.clone());
 
-                if error_str.contains("400") || error_str.contains("invalid type: integer") {
-                    return Err(anyhow::anyhow!(
-                        "API request failed with 400 error. This might be due to:\n\
-                         1. Invalid model name: '{}'\n\
-                         2. Request format issues\n\
-                         3. API rate limits or permissions\n\n\
-                         Original error: {}",
-                        selected_model,
-                        error_str
-                    ));
+                    save_session_if_needed(&session, &req.messages, &response_message, verbose);
+                    (false, None)
                 }
+                Some(FinishReason::ToolCalls) => {
+                    let tool_calls = stream_result
+                        .tool_calls
+                        .ok_or_else(|| anyhow::anyhow!("Tool calls expected but none received"))?;
+                    last_response_message =
+                        Some(base_response_message(None, Some(tool_calls.clone())));
 
-                return Err(anyhow::anyhow!("OpenAI API Error: {}", error_str));
-            }
-        };
-
-        let (should_continue, result) = match response.choices[0].finish_reason {
-            None => {
-                save_session_if_needed(
-                    &session,
-                    &req.messages,
-                    &response.choices[0].message,
-                    verbose,
-                );
-
-                (
-                    false,
-                    Some(response.choices[0].message.content.clone().unwrap()),
-                )
-            }
-            Some(FinishReason::Stop) => {
-                save_session_if_needed(
-                    &session,
-                    &req.messages,
-                    &response.choices[0].message,
-                    verbose,
-                );
-                (
-                    false,
-                    Some(response.choices[0].message.content.clone().unwrap()),
-                )
-            }
-            Some(FinishReason::Length) => {
-                save_session_if_needed(
-                    &session,
-                    &req.messages,
-                    &response.choices[0].message,
-                    verbose,
-                );
-                (false, None)
-            }
-            Some(FinishReason::ToolCalls) => {
-                let tool_calls = response.choices[0].message.tool_calls.clone().unwrap();
-
-                let assistant_msg = ChatCompletionRequestAssistantMessageArgs::default()
-                    .tool_calls(tool_calls.clone())
-                    .build()
-                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-                req.messages
-                    .push(ChatCompletionRequestMessage::Assistant(assistant_msg));
-
-                for tool_call in tool_calls {
-                    let (id, result) = execute_tool_call(tool_call, &registry, verbose);
-                    let tool_msg = ChatCompletionRequestToolMessageArgs::default()
-                        .tool_call_id(id)
-                        .content(ChatCompletionRequestToolMessageContent::Text(result))
+                    let assistant_msg = ChatCompletionRequestAssistantMessageArgs::default()
+                        .tool_calls(tool_calls.clone())
                         .build()
                         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
                     req.messages
-                        .push(ChatCompletionRequestMessage::Tool(tool_msg));
-                }
+                        .push(ChatCompletionRequestMessage::Assistant(assistant_msg));
 
-                (true, None)
+                    for tool_call in tool_calls {
+                        let (id, result) = execute_tool_call(tool_call, &registry, verbose);
+                        let tool_msg = ChatCompletionRequestToolMessageArgs::default()
+                            .tool_call_id(id)
+                            .content(ChatCompletionRequestToolMessageContent::Text(result))
+                            .build()
+                            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                        req.messages
+                            .push(ChatCompletionRequestMessage::Tool(tool_msg));
+                    }
+
+                    (true, None)
+                }
+                _ => {
+                    let response_message =
+                        base_response_message(Some(stream_result.content.clone()), None);
+                    last_response_message = Some(response_message.clone());
+
+                    save_session_if_needed(&session, &req.messages, &response_message, verbose);
+                    (false, None)
+                }
             }
-            _ => {
-                save_session_if_needed(
-                    &session,
-                    &req.messages,
-                    &response.choices[0].message,
-                    verbose,
-                );
-                (false, None)
+        } else {
+            let response = match client.chat().create(req.clone()).await {
+                Ok(r) => r,
+                Err(e) => {
+                    let error_str = e.to_string();
+                    if verbose {
+                        eprintln!("OpenAI API Error: {}", error_str);
+                    }
+
+                    if error_str.contains("400") || error_str.contains("invalid type: integer") {
+                        return Err(anyhow::anyhow!(
+                            "API request failed with 400 error. This might be due to:\n\
+                             1. Invalid model name: '{}'\n\
+                             2. Request format issues\n\
+                             3. API rate limits or permissions\n\n\
+                             Original error: {}",
+                            selected_model,
+                            error_str
+                        ));
+                    }
+
+                    return Err(anyhow::anyhow!("OpenAI API Error: {}", error_str));
+                }
+            };
+
+            last_response_message = Some(response.choices[0].message.clone());
+
+            match response.choices[0].finish_reason {
+                None => {
+                    save_session_if_needed(
+                        &session,
+                        &req.messages,
+                        &response.choices[0].message,
+                        verbose,
+                    );
+
+                    (
+                        false,
+                        Some(response.choices[0].message.content.clone().unwrap()),
+                    )
+                }
+                Some(FinishReason::Stop) => {
+                    save_session_if_needed(
+                        &session,
+                        &req.messages,
+                        &response.choices[0].message,
+                        verbose,
+                    );
+                    (
+                        false,
+                        Some(response.choices[0].message.content.clone().unwrap()),
+                    )
+                }
+                Some(FinishReason::Length) => {
+                    save_session_if_needed(
+                        &session,
+                        &req.messages,
+                        &response.choices[0].message,
+                        verbose,
+                    );
+                    (false, None)
+                }
+                Some(FinishReason::ToolCalls) => {
+                    let tool_calls = response.choices[0].message.tool_calls.clone().unwrap();
+
+                    let assistant_msg = ChatCompletionRequestAssistantMessageArgs::default()
+                        .tool_calls(tool_calls.clone())
+                        .build()
+                        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                    req.messages
+                        .push(ChatCompletionRequestMessage::Assistant(assistant_msg));
+
+                    for tool_call in tool_calls {
+                        let (id, result) = execute_tool_call(tool_call, &registry, verbose);
+                        let tool_msg = ChatCompletionRequestToolMessageArgs::default()
+                            .tool_call_id(id)
+                            .content(ChatCompletionRequestToolMessageContent::Text(result))
+                            .build()
+                            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                        req.messages
+                            .push(ChatCompletionRequestMessage::Tool(tool_msg));
+                    }
+
+                    (true, None)
+                }
+                _ => {
+                    save_session_if_needed(
+                        &session,
+                        &req.messages,
+                        &response.choices[0].message,
+                        verbose,
+                    );
+                    (false, None)
+                }
             }
         };
 
@@ -331,12 +413,9 @@ pub async fn ask_question(
             if input.trim().to_lowercase() == "y" {
                 max_iterations *= 2;
             } else {
-                save_session_if_needed(
-                    &session,
-                    &req.messages,
-                    &response.choices[0].message,
-                    verbose,
-                );
+                if let Some(response_message) = &last_response_message {
+                    save_session_if_needed(&session, &req.messages, response_message, verbose);
+                }
                 break;
             }
         }
@@ -597,4 +676,137 @@ fn get_base_messages(shell: &str) -> Vec<ChatCompletionRequestMessage> {
         .unwrap();
 
     vec![system_msg]
+}
+
+#[derive(Default)]
+struct ToolCallAccumulator {
+    id: Option<String>,
+    tool_type: Option<ChatCompletionToolType>,
+    function_name: Option<String>,
+    function_arguments: String,
+}
+
+struct StreamResult {
+    content: String,
+    tool_calls: Option<Vec<ChatCompletionMessageToolCall>>,
+    finish_reason: Option<FinishReason>,
+}
+
+async fn stream_chat_completion(
+    client: &Client<OpenAIConfig>,
+    req: &async_openai::types::CreateChatCompletionRequest,
+    verbose: bool,
+    selected_model: &str,
+) -> Result<StreamResult, anyhow::Error> {
+    let mut stream = match client.chat().create_stream(req.clone()).await {
+        Ok(s) => s,
+        Err(e) => {
+            let error_str = e.to_string();
+            if verbose {
+                eprintln!("OpenAI API Error: {}", error_str);
+            }
+
+            if error_str.contains("400") || error_str.contains("invalid type: integer") {
+                return Err(anyhow::anyhow!(
+                    "API request failed with 400 error. This might be due to:\n\
+                     1. Invalid model name: '{}'\n\
+                     2. Request format issues\n\
+                     3. API rate limits or permissions\n\n\
+                     Original error: {}",
+                    selected_model,
+                    error_str
+                ));
+            }
+
+            return Err(anyhow::anyhow!("OpenAI API Error: {}", error_str));
+        }
+    };
+
+    let mut content = String::new();
+    let mut tool_call_accumulators: Vec<ToolCallAccumulator> = Vec::new();
+    let mut finish_reason: Option<FinishReason> = None;
+    let mut printed_any = false;
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        if chunk.choices.is_empty() {
+            continue;
+        }
+
+        let choice = &chunk.choices[0];
+        if let Some(reason) = choice.finish_reason {
+            finish_reason = Some(reason);
+        }
+
+        let delta = &choice.delta;
+
+        if let Some(text) = &delta.content {
+            print!("{}", text);
+            if let Err(e) = std::io::stdout().flush() {
+                eprintln!("Warning: Failed to flush stdout: {}", e);
+            }
+            content.push_str(text);
+            printed_any = true;
+        }
+
+        if let Some(tool_calls) = &delta.tool_calls {
+            for tool_call in tool_calls {
+                let index = tool_call.index as usize;
+                if tool_call_accumulators.len() <= index {
+                    tool_call_accumulators.resize_with(index + 1, ToolCallAccumulator::default);
+                }
+                let acc = &mut tool_call_accumulators[index];
+
+                if let Some(id) = &tool_call.id {
+                    acc.id = Some(id.clone());
+                }
+                if let Some(tool_type) = &tool_call.r#type {
+                    acc.tool_type = Some(tool_type.clone());
+                }
+                if let Some(function) = &tool_call.function {
+                    if let Some(name) = &function.name {
+                        acc.function_name = Some(name.clone());
+                    }
+                    if let Some(arguments) = &function.arguments {
+                        acc.function_arguments.push_str(arguments);
+                    }
+                }
+            }
+        }
+    }
+
+    if printed_any && !content.ends_with('\n') {
+        println!();
+    }
+
+    let tool_calls = if tool_call_accumulators.is_empty() {
+        None
+    } else {
+        let mut rebuilt = Vec::new();
+        for (index, acc) in tool_call_accumulators.into_iter().enumerate() {
+            let id = acc
+                .id
+                .ok_or_else(|| anyhow::anyhow!("Missing tool call id for index {}", index))?;
+            let name = acc
+                .function_name
+                .ok_or_else(|| anyhow::anyhow!("Missing tool call name for index {}", index))?;
+            let tool_type = acc.tool_type.unwrap_or(ChatCompletionToolType::Function);
+
+            rebuilt.push(ChatCompletionMessageToolCall {
+                id,
+                r#type: tool_type,
+                function: FunctionCall {
+                    name,
+                    arguments: acc.function_arguments,
+                },
+            });
+        }
+        Some(rebuilt)
+    };
+
+    Ok(StreamResult {
+        content,
+        tool_calls,
+        finish_reason,
+    })
 }

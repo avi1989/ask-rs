@@ -136,7 +136,8 @@ MCP servers are configured in `~/.ask/config` using Claude Code's `.mcp.json` fo
     "git_status",
     "git_log",
     "git_diff"
-  ]
+  ],
+  "stream": true
 }
 ```
 
@@ -153,6 +154,11 @@ Supports two formats:
 - `${VAR}` - Expands to the value of `VAR`
 - `${VAR:-default}` - Uses `default` if `VAR` is not set
 
+### Streaming Output
+
+Set `"stream": true` in the config to stream assistant responses directly to the terminal as plain text.
+Set `"stream": false` to use the existing markdown rendering and pager behavior.
+
 ## CLI Commands
 
 ### Ask Questions (Default)
@@ -166,6 +172,12 @@ ask <question>
 ask what is the current git branch
 ask explain the code in main.rs
 ask list all TODO comments in the project
+```
+
+**Streaming overrides:**
+```bash
+ask --stream "summarize this file"
+ask --no-stream "summarize this file"
 ```
 
 ### Manage MCP Servers
