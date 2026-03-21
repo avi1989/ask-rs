@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct AskConfig {
     #[serde(rename = "mcpServers")]
     pub mcp_servers: HashMap<String, McpServerDefinition>,
@@ -21,6 +21,9 @@ pub struct AskConfig {
 
     #[serde(rename = "modelAliases", default)]
     pub model_aliases: HashMap<String, String>,
+
+    #[serde(rename = "stream", default)]
+    pub stream: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -78,6 +81,10 @@ pub fn config_to_servers(config: &AskConfig) -> Vec<(String, McpServerConfig)> {
         .collect()
 }
 
+pub fn resolve_stream_setting(config: &AskConfig) -> bool {
+    config.stream.unwrap_or(true)
+}
+
 pub fn save_config(config: &AskConfig) -> Result<PathBuf> {
     let config_path: PathBuf = shellexpand::tilde("~/.ask/config")
         .into_owned()
@@ -108,13 +115,7 @@ pub fn add_server(
     args: Vec<String>,
     env: HashMap<String, String>,
 ) -> Result<PathBuf> {
-    let mut config = load_config().unwrap_or_else(|_| AskConfig {
-        mcp_servers: HashMap::new(),
-        auto_approved_tools: Vec::new(),
-        base_url: None,
-        model: None,
-        model_aliases: HashMap::new(),
-    });
+    let mut config = load_config().unwrap_or_default();
 
     if config.mcp_servers.contains_key(name) {
         anyhow::bail!(
@@ -150,13 +151,7 @@ pub fn remove_server(name: &str) -> Result<PathBuf> {
 }
 
 pub fn add_auto_approved_tool(tool_name: &str) -> Result<PathBuf> {
-    let mut config = load_config().unwrap_or_else(|_| AskConfig {
-        mcp_servers: HashMap::new(),
-        auto_approved_tools: Vec::new(),
-        base_url: None,
-        model: None,
-        model_aliases: HashMap::new(),
-    });
+    let mut config = load_config().unwrap_or_default();
 
     if !config.auto_approved_tools.contains(&tool_name.to_string()) {
         config.auto_approved_tools.push(tool_name.to_string());
