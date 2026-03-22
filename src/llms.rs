@@ -727,6 +727,17 @@ async fn stream_chat_completion(
     let mut tool_call_accumulators: Vec<ToolCallAccumulator> = Vec::new();
     let mut finish_reason: Option<FinishReason> = None;
     let mut printed_any = false;
+    let mut pending_star = false;
+    let mut print_display = |text: &str| {
+        if text.is_empty() {
+            return;
+        }
+        print!("{}", text);
+        if let Err(e) = std::io::stdout().flush() {
+            eprintln!("Warning: Failed to flush stdout: {}", e);
+        }
+        printed_any = true;
+    };
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
@@ -742,12 +753,9 @@ async fn stream_chat_completion(
         let delta = &choice.delta;
 
         if let Some(text) = &delta.content {
-            print!("{}", text);
-            if let Err(e) = std::io::stdout().flush() {
-                eprintln!("Warning: Failed to flush stdout: {}", e);
-            }
             content.push_str(text);
-            printed_any = true;
+            let display = strip_double_asterisks(text, &mut pending_star);
+            print_display(&display);
         }
 
         if let Some(tool_calls) = &delta.tool_calls {
@@ -774,6 +782,10 @@ async fn stream_chat_completion(
                 }
             }
         }
+    }
+
+    if pending_star {
+        print_display("*");
     }
 
     if printed_any && !content.ends_with('\n') {
@@ -810,4 +822,26 @@ async fn stream_chat_completion(
         tool_calls,
         finish_reason,
     })
+}
+
+fn strip_double_asterisks(text: &str, pending_star: &mut bool) -> String {
+    let mut display = String::new();
+    for ch in text.chars() {
+        if ch == '*' {
+            if *pending_star {
+                // Consume "**" without displaying either asterisk.
+                *pending_star = false;
+            } else {
+                *pending_star = true;
+            }
+            continue;
+        }
+
+        if *pending_star {
+            display.push('*');
+            *pending_star = false;
+        }
+        display.push(ch);
+    }
+    display
 }
