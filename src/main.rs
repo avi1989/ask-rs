@@ -99,10 +99,11 @@ async fn main() {
                 std::process::exit(1);
             }
 
+            let loaded_config = config::load_config().unwrap_or_default();
             let model = cli.model;
             let selected_model: Option<String> = match model {
                 Some(model) => {
-                    let model_aliases = config::load_config().unwrap().model_aliases;
+                    let model_aliases = &loaded_config.model_aliases;
                     if let Some(alias) = model_aliases.get(&model) {
                         Some(alias.to_string())
                     } else {
@@ -123,16 +124,22 @@ async fn main() {
                 session = get_last_session_name();
             }
 
+            let stream = config::resolve_stream_setting(&loaded_config);
+
             match llms::ask_question(
                 &question,
                 selected_model,
                 session,
                 max_iterations,
                 cli.verbose,
+                stream,
             )
             .await
             {
                 Ok(answer) => {
+                    if stream {
+                        return;
+                    }
                     // Check if we should use pager for long responses
                     let line_count = answer.lines().count();
                     let (_, height) = terminal::size().unwrap_or((80, 24));
@@ -270,6 +277,7 @@ fn handle_init() {
         model: None,
         model_aliases: std::collections::HashMap::new(),
         presets: std::collections::HashMap::new(),
+        stream: Some(true),
         mcp_servers: {
             let mut servers = std::collections::HashMap::new();
             servers.insert(
