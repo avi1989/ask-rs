@@ -1,5 +1,5 @@
 use crate::tools::mcp::McpServerConfig;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -21,6 +21,9 @@ pub struct AskConfig {
 
     #[serde(rename = "modelAliases", default)]
     pub model_aliases: HashMap<String, String>,
+
+    #[serde(rename = "promptPresets", default)]
+    pub presets: HashMap<String, String>,
 
     #[serde(rename = "stream", default)]
     pub stream: Option<bool>,
@@ -171,12 +174,66 @@ pub fn set_base_url(base_url: &str) -> Result<PathBuf> {
     save_config(&config).context("Failed to save config after setting base URL")
 }
 
+pub fn remove_base_url() -> Result<PathBuf> {
+    let mut config = load_config().context("Failed to load config to set base URL")?;
+
+    config.base_url = None;
+
+    save_config(&config).context("Failed to save config")
+}
+
 pub fn set_default_model(model: &str) -> Result<PathBuf> {
     let mut config = load_config().context("Failed to load config to set default model")?;
 
     config.model = Some(model.to_string());
 
     save_config(&config).context("Failed to save config after setting default model")
+}
+
+pub fn add_prompt_presets(name: String, prompt: String) -> Result<PathBuf> {
+    let mut config = load_config().context("Failed to load config")?;
+    let mut presets = config.presets;
+    if presets.contains_key(&name) {
+        bail!("Cannot add {name}. It already exists");
+    }
+    presets.insert(name, prompt);
+    config.presets = presets;
+    save_config(&config)
+}
+
+pub fn remove_prompt_presets(name: String) -> Result<PathBuf> {
+    let mut config = load_config().context("Failed to load config")?;
+    let mut presets = config.presets;
+    if !presets.contains_key(&name) {
+        bail!("{name} is not a valid prompt preset");
+    }
+    presets.remove(&name);
+    config.presets = presets;
+    save_config(&config)
+}
+
+pub fn list_prompt_presets() -> Result<()> {
+    let config = load_config().context("Failed to load config")?;
+    let presets = config.presets;
+    if presets.is_empty() {
+        bail!("")
+    }
+
+    for (name, value) in presets {
+        println!("{name}: {value}");
+    }
+
+    Ok(())
+}
+
+pub fn get_prompt_preset(name: &str) -> Result<String> {
+    let config = load_config().context("Failed to load config")?;
+    let presets = config.presets;
+    if let Some(preset) = presets.get(name) {
+        Ok(preset.clone())
+    } else {
+        bail!("Prompt preset '{name}' not found")
+    }
 }
 
 /// Expand environment variables in strings
