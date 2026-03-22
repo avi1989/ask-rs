@@ -652,11 +652,15 @@ fn format_mcp_tool_call(tool_name: &str, arguments: &str, verbose: bool) -> Stri
 
 fn build_system_prompt(shell: &str) -> String {
     let date = chrono::offset::Local::now().format("%Y-%m-%d").to_string();
+    let cwd = env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| ".".to_string());
     format!(
         "Help the user with their tasks. \n\
          IMPORTANT: This is a one-way conversation - the user cannot reply to your messages.\n\
          Guidelines:\n\
          • You don't need to ask for permission to use the tools available to you \n\
+         • The current working directory is: {cwd}\n\
          • Use the current directory as working directory unless otherwise specified\n\
          • Follow the conventions that the user uses.  \n\
             • Example: If the user asks you to generate a commit message, look at other commits and generate a message that is similar to them. \n\

@@ -257,8 +257,10 @@ fn handle_init() {
 
     println!("This will create ~/.ask/config with the following MCP servers:");
     println!();
-    println!("  1. filesystem - File system operations (using npx mcp-server-filesystem)");
-    println!("     Command: {npx_command} -y mcp-server-filesystem .");
+    println!(
+        "  1. filesystem - File system operations (using @modelcontextprotocol/server-filesystem)"
+    );
+    println!("     Command: {npx_command} -y @modelcontextprotocol/server-filesystem .");
     println!("     Provides tools for reading, writing, and managing files");
     println!();
     println!("  2. git - Git repository operations (using uvx mcp-server-git)");
@@ -300,7 +302,7 @@ fn handle_init() {
                     command: npx_command.to_string(),
                     args: vec![
                         "-y".to_string(),
-                        "mcp-server-filesystem".to_string(),
+                        "@modelcontextprotocol/server-filesystem".to_string(),
                         ".".to_string(),
                     ],
                     env: {
