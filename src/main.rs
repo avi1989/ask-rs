@@ -1,7 +1,10 @@
 use crate::commands::Commands;
+use crate::commands::base_url_commands::handle_base_url_commands;
 use crate::commands::mcp_commands::handle_mcp_commands;
 use crate::commands::model_commands::handle_model_commands;
+use crate::commands::preset_commands::handle_preset_commands;
 use crate::commands::session_commands::handle_session_commands;
+use crate::config::get_prompt_preset;
 use crate::sessions::get_last_session_name;
 use clap::Parser;
 use crossterm::terminal;
@@ -37,6 +40,9 @@ struct Cli {
     #[arg(short, long)]
     model: Option<String>,
 
+    #[arg(short, long)]
+    preset: Option<String>,
+
     /// Maximum number of iterations with the AI (default 21)
     #[arg(short = 'i', long = "iterations")]
     iterations: Option<usize>,
@@ -56,6 +62,8 @@ async fn main() {
         Some(Commands::Mcp { command }) => handle_mcp_commands(command),
         Some(Commands::Session { command }) => handle_session_commands(command),
         Some(Commands::Model { command }) => handle_model_commands(command),
+        Some(Commands::BaseUrl { command }) => handle_base_url_commands(command),
+        Some(Commands::Preset { command }) => handle_preset_commands(command),
         Some(Commands::Init) => {
             handle_init();
         }
@@ -72,7 +80,21 @@ async fn main() {
                 }
             };
 
-            if cli.question.is_empty() && stdin.is_empty() {
+            let preset = match cli.preset {
+                Some(preset_name) => match get_prompt_preset(&preset_name) {
+                    Ok(preset_prompt) => {
+                        println!("Using preset '{}':", preset_name);
+                        preset_prompt
+                    }
+                    Err(e) => {
+                        eprintln!("Error: Failed to load preset '{}': {}", preset_name, e);
+                        std::process::exit(1);
+                    }
+                },
+                None => String::new(),
+            };
+
+            if cli.question.is_empty() && stdin.is_empty() && preset.is_empty() {
                 eprintln!("Error: Please provide a question or use a subcommand (init, mcp)");
                 std::process::exit(1);
             }
@@ -91,7 +113,12 @@ async fn main() {
                 None => model,
             };
             let mut question = cli.question.join(" ");
-            question = format!("{}\n\n{}", question, stdin);
+            question = format!("{}\n{}\n\n{}", preset, question, stdin);
+
+            if cli.verbose {
+                println!("Asking: {question}");
+            }
+
             let mut session = cli.session;
             if session.is_none() && cli.reply {
                 session = get_last_session_name();
@@ -249,6 +276,7 @@ fn handle_init() {
         base_url: None,
         model: None,
         model_aliases: std::collections::HashMap::new(),
+        presets: std::collections::HashMap::new(),
         stream: Some(true),
         mcp_servers: {
             let mut servers = std::collections::HashMap::new();
