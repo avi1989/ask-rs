@@ -1,7 +1,7 @@
 pub(crate) mod mcp;
 pub(crate) mod tool_cache;
 
-use async_openai::types::{ChatCompletionTool, ChatCompletionToolType, FunctionObject};
+use async_openai::types::chat::{ChatCompletionTool, FunctionObject};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -45,7 +45,6 @@ pub fn execute_command(command: &str, working_directory: &str) -> String {
 
 pub fn execute_command_tool() -> ChatCompletionTool {
     ChatCompletionTool {
-        r#type: ChatCompletionToolType::Function,
         function: FunctionObject {
             name: "execute_command".to_string(),
             description: Some("Execute a command on the Operating System".to_string()),

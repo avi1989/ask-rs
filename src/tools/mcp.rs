@@ -1,5 +1,5 @@
 use crate::tools::tool_cache::{McpRegistry, McpService, update_cache_for_server};
-use async_openai::types::{ChatCompletionTool, ChatCompletionToolType, FunctionObject};
+use async_openai::types::chat::{ChatCompletionTool, FunctionObject};
 use rmcp::model::CallToolRequestParam;
 use rmcp::service::ServiceExt;
 use rmcp::transport::TokioChildProcess;
@@ -201,7 +201,6 @@ fn convert_mcp_tool_to_openai(mcp_tool: &rmcp::model::Tool, prefix: &str) -> Cha
     }
 
     ChatCompletionTool {
-        r#type: ChatCompletionToolType::Function,
         function: FunctionObject {
             name,
             description: mcp_tool.description.as_ref().map(|c| c.to_string()),

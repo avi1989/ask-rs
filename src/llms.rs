@@ -6,14 +6,14 @@ use crate::shell::detect_shell_kind;
 use crate::tools::mcp::execute_mcp_tool_call;
 use crate::tools::tool_cache::{McpRegistry, load_cached_tools, populate_cache_if_needed};
 use crate::tools::{ExecuteCommandRequest, execute_command_tool};
-use async_openai::types::{
-    ChatCompletionMessageToolCall, ChatCompletionRequestAssistantMessageArgs,
-    ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
-    ChatCompletionRequestSystemMessageContent, ChatCompletionRequestToolMessageArgs,
-    ChatCompletionRequestToolMessageContent, ChatCompletionRequestUserMessageArgs,
-    ChatCompletionRequestUserMessageContent, ChatCompletionResponseMessage,
-    ChatCompletionToolChoiceOption, ChatCompletionToolType, CreateChatCompletionRequestArgs,
-    FinishReason, FunctionCall, Role,
+use async_openai::types::chat::{
+    ChatCompletionMessageToolCall, ChatCompletionMessageToolCalls,
+    ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestMessage,
+    ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestSystemMessageContent,
+    ChatCompletionRequestToolMessageArgs, ChatCompletionRequestToolMessageContent,
+    ChatCompletionRequestUserMessageArgs, ChatCompletionRequestUserMessageContent,
+    ChatCompletionResponseMessage, ChatCompletionToolChoiceOption, ChatCompletionTools,
+    CreateChatCompletionRequestArgs, FinishReason, FunctionCall, Role, ToolChoiceOptions,
 };
 use async_openai::{Client, config::OpenAIConfig};
 use futures::StreamExt;
@@ -205,8 +205,15 @@ pub async fn ask_question(
     let mut req = CreateChatCompletionRequestArgs::default()
         .model(selected_model.to_string())
         .messages(messages)
-        .tools(tools)
-        .tool_choice(ChatCompletionToolChoiceOption::Auto)
+        .tools(
+            tools
+                .into_iter()
+                .map(ChatCompletionTools::Function)
+                .collect::<Vec<_>>(),
+        )
+        .tool_choice(ChatCompletionToolChoiceOption::Mode(
+            ToolChoiceOptions::Auto,
+        ))
         .build()
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
 
@@ -233,11 +240,12 @@ pub async fn ask_question(
             #[allow(deprecated)]
             let base_response_message =
                 |content: Option<String>,
-                 tool_calls: Option<Vec<ChatCompletionMessageToolCall>>| {
+                 tool_calls: Option<Vec<ChatCompletionMessageToolCalls>>| {
                     ChatCompletionResponseMessage {
                         content,
                         refusal: None,
                         tool_calls,
+                        annotations: None,
                         role: Role::Assistant,
                         function_call: None,
                         audio: None,
@@ -525,13 +533,24 @@ fn execute_mcp_tool(
 }
 
 fn execute_tool_call(
-    tool_call: ChatCompletionMessageToolCall,
+    tool_call: ChatCompletionMessageToolCalls,
     registry: &AsyncMutex<McpRegistry>,
     verbose: bool,
 ) -> (String, String) {
-    let name = tool_call.function.name.clone();
-    let arguments = tool_call.function.arguments.clone();
-    let id = tool_call.id.clone();
+    let (id, name, arguments) = match tool_call {
+        ChatCompletionMessageToolCalls::Function(call) => {
+            (call.id, call.function.name, call.function.arguments)
+        }
+        ChatCompletionMessageToolCalls::Custom(call) => {
+            return (
+                call.id,
+                format!(
+                    "Error: Unsupported custom tool call '{}'",
+                    call.custom_tool.name
+                ),
+            );
+        }
+    };
 
     let result = if name == "execute_command" {
         execute_command_with_approval(&arguments, verbose)
@@ -545,7 +564,7 @@ fn execute_tool_call(
 fn save_session_if_needed(
     session: &Option<String>,
     messages: &[ChatCompletionRequestMessage],
-    response_message: &async_openai::types::ChatCompletionResponseMessage,
+    response_message: &async_openai::types::chat::ChatCompletionResponseMessage,
     verbose: bool,
 ) {
     let session_name = session.as_deref().unwrap_or("last");
@@ -686,20 +705,19 @@ fn get_base_messages(shell: &str) -> Vec<ChatCompletionRequestMessage> {
 #[derive(Default)]
 struct ToolCallAccumulator {
     id: Option<String>,
-    tool_type: Option<ChatCompletionToolType>,
     function_name: Option<String>,
     function_arguments: String,
 }
 
 struct StreamResult {
     content: String,
-    tool_calls: Option<Vec<ChatCompletionMessageToolCall>>,
+    tool_calls: Option<Vec<ChatCompletionMessageToolCalls>>,
     finish_reason: Option<FinishReason>,
 }
 
 async fn stream_chat_completion(
     client: &Client<OpenAIConfig>,
-    req: &async_openai::types::CreateChatCompletionRequest,
+    req: &async_openai::types::chat::CreateChatCompletionRequest,
     verbose: bool,
     selected_model: &str,
 ) -> Result<StreamResult, anyhow::Error> {
@@ -773,9 +791,6 @@ async fn stream_chat_completion(
                 if let Some(id) = &tool_call.id {
                     acc.id = Some(id.clone());
                 }
-                if let Some(tool_type) = &tool_call.r#type {
-                    acc.tool_type = Some(tool_type.clone());
-                }
                 if let Some(function) = &tool_call.function {
                     if let Some(name) = &function.name {
                         acc.function_name = Some(name.clone());
@@ -807,16 +822,15 @@ async fn stream_chat_completion(
             let name = acc
                 .function_name
                 .ok_or_else(|| anyhow::anyhow!("Missing tool call name for index {}", index))?;
-            let tool_type = acc.tool_type.unwrap_or(ChatCompletionToolType::Function);
-
-            rebuilt.push(ChatCompletionMessageToolCall {
-                id,
-                r#type: tool_type,
-                function: FunctionCall {
-                    name,
-                    arguments: acc.function_arguments,
+            rebuilt.push(ChatCompletionMessageToolCalls::Function(
+                ChatCompletionMessageToolCall {
+                    id,
+                    function: FunctionCall {
+                        name,
+                        arguments: acc.function_arguments,
+                    },
                 },
-            });
+            ));
         }
         Some(rebuilt)
     };

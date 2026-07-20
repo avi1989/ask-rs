@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use async_openai::types::{
+use async_openai::types::chat::{
     ChatCompletionRequestAssistantMessage, ChatCompletionRequestMessage,
     ChatCompletionResponseMessage,
 };

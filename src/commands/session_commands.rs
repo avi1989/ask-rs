@@ -2,7 +2,7 @@ use crate::commands::SessionCommands;
 use crate::sessions::{
     delete_session, get_all_sessions, get_last_session_name, get_session, save_session,
 };
-use async_openai::types::{
+use async_openai::types::chat::{
     ChatCompletionRequestAssistantMessageContent, ChatCompletionRequestMessage,
     ChatCompletionRequestUserMessageContent,
 };

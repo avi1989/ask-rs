@@ -1,5 +1,5 @@
 use crate::tools::mcp::{McpServerConfig, get_mcp_tools};
-use async_openai::types::ChatCompletionTool;
+use async_openai::types::chat::ChatCompletionTool;
 use rmcp::RoleClient;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
